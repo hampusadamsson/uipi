@@ -34,16 +34,19 @@ export function deriveTranscript(attach: {
   for (const m of attach.messages ?? []) {
     out.push(fromMessage(m));
   }
-  // 2. optimistic user messages not yet echoed by the server
-  for (const s of attach.sentMessages ?? []) {
-    out.push({
-      kind: "message",
-      role: "user",
-      text: s,
-      toolCalls: [],
-      raw: null,
-      id: `sent-${s.slice(0, 20)}-${s.length}`,
-    });
+  // 2. optimistic user messages only while the server hasn't echoed any user message yet
+  const hasUserEcho = out.some((e) => e.role === "user");
+  if (!hasUserEcho) {
+    for (const s of attach.sentMessages ?? []) {
+      out.push({
+        kind: "message",
+        role: "user",
+        text: s,
+        toolCalls: [],
+        raw: null,
+        id: `sent-${s.slice(0, 20)}-${s.length}`,
+      });
+    }
   }
   // 3. fold live events on top
   for (const ev of attach.events ?? []) {
@@ -83,7 +86,9 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
   if (!ev || typeof ev !== "object") return;
   switch (ev.type) {
     case "message_start": {
-      out.push(fromMessage(ev.message));
+      const msg = fromMessage(ev.message);
+      // dedupe: snapshot may already contain this message (e.g. replayed history)
+      if (!out.some((e) => e.id === msg.id)) out.push(msg);
       break;
     }
     case "message_update": {

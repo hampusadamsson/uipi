@@ -108,6 +108,16 @@ export class SessionService {
             break;
           }
           await s.session.setModel(model);
+          // echo the new model to ALL subscribers of this session
+          const m = s.session.model as unknown as { provider?: string; id?: string } | undefined;
+          const modelRef = m?.provider && m?.id ? { provider: m.provider, modelId: m.id } : null;
+          for (const s2 of s.subscribers.keys()) {
+            try {
+              s2.send({ type: "proto.modelSet", sessionId: s.id, model: modelRef });
+            } catch {
+              /* dead */
+            }
+          }
         } catch (e) {
           reply({ type: "proto.error", message: String(e) });
         }

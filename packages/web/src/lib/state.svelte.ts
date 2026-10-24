@@ -132,6 +132,11 @@ export class UiState {
 
   private handle(m: S2C): void {
     switch (m.type) {
+      case "proto.modelSet": {
+        const a = this.attached.get(m.sessionId);
+        if (a) (a as { model?: unknown }).model = m.model;
+        break;
+      }
       case "proto.sessions": {
         this.sessions = m.sessions;
         break;
@@ -154,10 +159,10 @@ export class UiState {
         break;
       }
       case "pi.evt": {
-        const a = this.attached.get(m.sessionId);
-        if (a) a.events.push(m.event);
-        const le = this.liveEvents.get(m.sessionId);
-        if (le) le.push(m.event);
+        // REACTIVE: replace the array (mutation of a plain array is invisible
+        // to Svelte 5 — only Map.set triggers)
+        const old = this.liveEvents.get(m.sessionId) ?? [];
+        this.liveEvents.set(m.sessionId, [...old, m.event]);
         // once the authoritative user echo arrives, drop the optimistic copy
         if ((m.event as { type?: string })?.type === "message_start") {
           const role = (m.event as { message?: { role?: string } }).message?.role;
