@@ -11,19 +11,29 @@
   let acIndex = $state(-1);
   let acItems = $state<string[]>([]);
 
-  const attach = $derived(ui.attached.get(sessionId) as { isStreaming?: boolean; steering?: unknown[]; followUp?: unknown[] } | undefined);
+  const attach = $derived(
+    ui.attached.get(sessionId) as
+      | { isStreaming?: boolean; steering?: unknown[]; followUp?: unknown[] }
+      | undefined
+  );
   const steering = $derived(attach?.steering ?? []);
   const followUp = $derived(attach?.followUp ?? []);
 
   const slashItems = $derived(["/compact", "/model", "/thinking", "/new", "/clear", "/quit"]);
 
   function textOf(q: unknown): string {
-    const s = typeof q === "string" ? q : (q as { text?: string; message?: string })?.text ?? (q as { message?: string })?.message ?? "";
+    const s =
+      typeof q === "string"
+        ? q
+        : (q as { text?: string; message?: string })?.text ??
+          (q as { message?: string })?.message ??
+          "";
     return String(s).slice(0, 60);
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window || navigator.maxTouchPoints > 0)) {
+      // desktop: Enter sends
       e.preventDefault();
       send();
       return;
@@ -43,6 +53,13 @@
       acItems = [];
       acIndex = -1;
     }
+    autosize();
+  }
+
+  function autosize() {
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
   }
 
   function acceptAc() {
@@ -62,7 +79,7 @@
       ui.cmd({ type: "pi.prompt", sessionId, text: v });
     }
     text = "";
-    acItems = [];
+    if (ta) ta.style.height = "auto";
     refocus();
   }
 
@@ -71,28 +88,36 @@
   }
 </script>
 
-<div class="border-t border-border px-3 py-2">
+<div class="border-t border-border px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
   {#if steering.length + followUp.length > 0}
     <div class="flex flex-wrap gap-1 mb-1">
       {#each steering as s, i}
-        <Badge variant="outline" class="text-amber-500 gap-1">
-          steer: {textOf(s)}
-          <button class="text-muted-foreground hover:text-foreground" onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}>×</button>
+        <Badge variant="outline" class="text-amber-500 gap-1 max-w-full">
+          <span class="truncate">steer: {textOf(s)}</span>
+          <button
+            class="text-muted-foreground hover:text-foreground shrink-0 px-1"
+            aria-label="Cancel steering message"
+            onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}>×</button
+          >
         </Badge>
       {/each}
       {#each followUp as f, i}
-        <Badge variant="outline" class="text-sky-500 gap-1">
-          followUp: {textOf(f)}
-          <button class="text-muted-foreground hover:text-foreground" onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}>×</button>
+        <Badge variant="outline" class="text-sky-500 gap-1 max-w-full">
+          <span class="truncate">followUp: {textOf(f)}</span>
+          <button
+            class="text-muted-foreground hover:text-foreground shrink-0 px-1"
+            aria-label="Cancel follow-up message"
+            onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}>×</button
+          >
         </Badge>
       {/each}
     </div>
   {/if}
   {#if acItems.length > 0}
-    <div class="absolute bottom-20 left-72 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30">
+    <div class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1">
       {#each acItems as s, i}
         <div
-          class="text-xs px-3 py-1 cursor-pointer {i === acIndex ? 'bg-accent' : ''}"
+          class="text-xs px-3 py-2 cursor-pointer min-h-9 {i === acIndex ? 'bg-accent' : ''}"
           onmouseenter={() => (acIndex = i)}
           onclick={acceptAc}
         >{s}</div>
@@ -106,13 +131,19 @@
       onkeydown={onKeydown}
       oninput={onInput}
       rows={2}
-      placeholder="Message ('/' for commands, @file to reference) — Enter send, Shift+Enter newline"
-      class="min-h-16 resize-none"
+      enterkeyhint="send"
+      autocomplete="off"
+      placeholder="Message ('/' for commands, @file to reference)"
+      class="min-h-11 max-h-40 resize-none text-base md:text-sm"
     ></Textarea>
-    <div class="flex flex-col gap-1">
-      <Button size="sm" onclick={send}>Send</Button>
+    <div class="flex flex-col gap-1 shrink-0">
+      <Button class="min-h-11 px-5" onclick={send}>Send</Button>
       {#if attach?.isStreaming}
-        <Button size="sm" variant="destructive" onclick={() => ui.cmd({ type: "pi.abort", sessionId })}>Stop</Button>
+        <Button
+          variant="destructive"
+          class="min-h-9 px-3 text-xs"
+          onclick={() => ui.cmd({ type: "pi.abort", sessionId })}>Stop</Button
+        >
       {/if}
     </div>
   </div>

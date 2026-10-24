@@ -33,14 +33,14 @@
       </Button>
     {/snippet}
   </Popover.Trigger>
-  <Popover.Content class="w-80 p-0" align="end">
+  <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-0" align="end">
     <div class="sticky top-0 bg-popover border-b border-border p-2">
       <Input class="h-8 text-xs" placeholder="filter (e.g. claude, gpt)…" bind:value={filter} />
     </div>
     <div class="max-h-96 overflow-y-auto">
       {#each visible as m (m.provider + m.modelId)}
         <button
-          class="w-full text-left text-xs px-3 py-1.5 hover:bg-accent hover:text-accent-foreground {cur?.modelId === m.modelId ? 'text-primary' : ''}"
+          class="w-full text-left text-xs px-3 py-2 min-h-10 hover:bg-accent hover:text-accent-foreground {cur?.modelId === m.modelId ? 'text-primary' : ''}"
           onclick={() => pick(m)}
         >
           <span class="font-medium">{m.displayName}</span>

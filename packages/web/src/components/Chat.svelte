@@ -3,7 +3,6 @@
   import { deriveTranscript, type TranscriptEntry } from "$lib/transcript.js";
   import Message from "./Message.svelte";
   import InputBox from "./InputBox.svelte";
-  import * as ScrollArea from "$lib/components/ui/scroll-area/index.js";
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -26,7 +25,9 @@
 
 <div
   bind:this={scroller}
-  class="flex-1 overflow-y-auto px-4 py-3"
+  class="flex-1 overflow-y-auto overscroll-contain px-3 md:px-4 py-3"
+  role="log"
+  aria-live="polite"
 >
   {#each entries as e, i (e.id + ":" + i)}
     <Message entry={e} />
