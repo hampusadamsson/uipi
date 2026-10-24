@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import type { C2S, S2C, SessionSummary } from "@uipi/protocol";
 import {
   createAgentSessionFromServices,
@@ -140,9 +141,10 @@ export class SessionService {
     }
   }
 
-  private async newSession(cwd: string, _agentDir: string | undefined, reply: Send) {
+  private async newSession(cwd: string, agentDir: string | undefined, reply: Send) {
     try {
-      const live = await this.materialize(cwd, undefined);
+      const live = await this.materialize(cwd, undefined, agentDir);
+      this.pushRecentDir(cwd);
       this.pushRecentDir(cwd);
       reply(await attachPayload(live));
       await this.replySessions(reply);
@@ -154,7 +156,7 @@ export class SessionService {
   private async openSessionFile(file: string, reply: Send) {
     try {
       const cwd = inferCwdFromSessionFile(file) ?? process.cwd();
-      const live = await this.materialize(cwd, file);
+      const live = await this.materialize(cwd, file, undefined);
       reply(await attachPayload(live));
       await this.replySessions(reply);
     } catch (e) {
@@ -189,14 +191,19 @@ export class SessionService {
     reply({ type: "proto.sessions", sessions: await this.listAllSessions() });
   }
 
-  private async materialize(cwd: string, sessionFile: string | undefined): Promise<LiveSession> {
+  private async materialize(cwd: string, sessionFile: string | undefined, agentDir: string | undefined): Promise<LiveSession> {
+    const effectiveAgentDir = agentDir && agentDir.trim() ? agentDir.trim().replace(/^~(?=\/)/, `${process.env.HOME ?? "~"}`) : undefined;
+    if (effectiveAgentDir && !existsSync(effectiveAgentDir)) {
+      throw new Error(`agent dir does not exist: ${effectiveAgentDir}`);
+    }
+    const services = await createAgentSessionServices({ cwd, agentDir: effectiveAgentDir });
     const runtime = await this.createRuntime(
-      async ({ cwd: c }) => {
-        const services = await createAgentSessionServices({ cwd: c });
+      async ({ cwd: _c }) => {
+        const services = await createAgentSessionServices({ cwd: _c, agentDir: effectiveAgentDir });
         return {
           ...(await createAgentSessionFromServices({
             services,
-            sessionManager: sessionFile ? SessionManager.open(sessionFile) : SessionManager.create(c),
+            sessionManager: sessionFile ? SessionManager.open(sessionFile) : SessionManager.create(_c),
           })),
           services,
         } as never;
