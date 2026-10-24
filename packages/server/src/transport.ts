@@ -15,6 +15,10 @@ export interface ServerOptions {
 export function createServer(opts: ServerOptions, service: SessionService) {
   const staticDir = opts.staticDir ?? "";
   const httpServer = http.createServer((req, res) => {
+    if (req.url === "/api/health") {
+      res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+      return;
+    }
     if (!staticDir) {
       res.writeHead(404).end("uipi: no static assets built. Run `pnpm -r build`.");
       return;

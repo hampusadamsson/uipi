@@ -6,6 +6,7 @@ import { createServer } from "./transport.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.UIPI_PORT ?? 8787);
+const HOST = process.env.UIPI_HOST ?? "127.0.0.1";
 const staticDir = process.env.UIPI_STATIC
   ? path.resolve(process.env.UIPI_STATIC)
   : path.resolve(here, "../../web/dist");
@@ -21,6 +22,6 @@ const shutdown = async () => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`uipi server → http://127.0.0.1:${PORT}  (ws /ws)`);
+httpServer.listen(PORT, HOST, () => {
+  console.log(`uipi server → http://${HOST === "0.0.0.0" ? "127.0.0.1" : HOST}:${PORT}  (ws /ws)`);
 });

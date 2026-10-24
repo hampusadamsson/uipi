@@ -1,0 +1,40 @@
+name: docker-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08c6ba3d7b92f020de0867b0f95c4b8f4a464dfe # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08940acaaac2c8d6b0b0e5e3 # v3.5.0
+
+      - name: Build image (local load, no push)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe892b20f30d0d63 # v6.5.0
+        with:
+          context: .
+          load: true
+          tags: uipi:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run -d --name uipi-smoke -p 8787:8787 uipi:ci
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8787/api/health >/dev/null; then
+              echo "health OK"; docker rm -f uipi-smoke >/dev/null; exit 0
+            fi
+            sleep 2
+          done
+          docker logs uipi-smoke
+          docker rm -f uipi-smoke >/dev/null
+          exit 1
