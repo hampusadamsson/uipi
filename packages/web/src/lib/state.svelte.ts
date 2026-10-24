@@ -9,16 +9,7 @@ import type {
   UiEvent,
 } from "@uipi/protocol";
 
-export interface ChatMessage {
-  role: string;
-  removeTextBlock: false;
-  content: unknown;
-  raw: unknown;
-  text: string;
-}
-
-// Re-declare for local use (protocol doesn't include Attachment yet)
-export type Attach = Attachment;
+export type RunState = "idle" | "thinking" | "streaming" | "tooling";
 
 /** Minimal global app state via runes-compatible class. */
 export class UiState {
@@ -33,6 +24,8 @@ export class UiState {
   uiEvents = $state<UiEvent[]>([]);
   error = $state<string | null>(null);
   wantNew = $state(false);
+  /** sessionId -> live run state */
+  runState = new SvelteMap<string, RunState>();
 
   init() {
     this.conn.onOpen = () => {
@@ -49,6 +42,11 @@ export class UiState {
     };
     this.conn.onMessage = (m) => this.handle(m);
     this.conn.connect();
+  }
+
+  stateOf(id: string | null): RunState {
+    if (!id) return "idle";
+    return this.runState.get(id) ?? "idle";
   }
 
   async refreshSessions() {
@@ -69,7 +67,7 @@ export class UiState {
       });
       this.models = m.models;
     } catch {
-      /* ignore before any session exists */
+      /* no live session yet */
     }
   }
 
@@ -96,7 +94,10 @@ export class UiState {
   }
 
   private async onAttached(m: S2C & { type: "proto.attached" }) {
-    this.attached.set(m.sessionId, m as unknown as Attachment);
+    const a = m as unknown as Attachment;
+    a.events = [];
+    this.attached.set(m.sessionId, a);
+    this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
     this.activeId = m.sessionId;
     void this.refreshModels();
     await this.refreshSessions();
@@ -105,11 +106,18 @@ export class UiState {
   detach(id: string) {
     this.conn.sendFire({ type: "proto.detach", sessionId: id });
     this.attached.delete(id);
+    this.runState.delete(id);
     if (this.activeId === id) this.activeId = [...this.attached.keys()][0] ?? null;
   }
 
   cmd(m: C2S): void {
     this.conn.sendFire(m);
+  }
+
+  /** optimistic send: set pending state right away, server events will settle it */
+  sendPrompt(sessionId: string, text: string): void {
+    this.runState.set(sessionId, "thinking");
+    this.cmd({ type: "pi.prompt", sessionId, text });
   }
 
   private handle(m: S2C): void {
@@ -120,22 +128,66 @@ export class UiState {
       }
       case "proto.error": {
         this.error = m.message;
-        setTimeout(() => (this.error = null), 6000);
+        // failed prompt → back to idle so UI doesn't hang
+        if (this.activeId && this.stateOf(this.activeId) === "thinking") {
+          this.runState.set(this.activeId, "idle");
+        }
         break;
       }
       case "proto.attached": {
-        this.attached.set(m.sessionId, m as unknown as Attachment);
+        const a = m as unknown as Attachment;
+        a.events = [];
+        this.attached.set(m.sessionId, a);
+        this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
         break;
       }
       case "pi.evt": {
         const a = this.attached.get(m.sessionId);
         if (a) a.events.push(m.event);
+        this.applyRunEvent(m.sessionId, m.event);
         break;
       }
       case "ui.event": {
         this.uiEvents = [...this.uiEvents, m.event];
         break;
       }
+      default:
+        break;
+    }
+  }
+
+  /** drive runState from the pi event stream */
+  private applyRunEvent(sessionId: string, ev: unknown): void {
+    const e = ev as { type?: string; assistantMessageEvent?: { type?: string } };
+    if (!e?.type) return;
+    switch (e.type) {
+      case "agent_start":
+      case "turn_start":
+        // first event of a run — only upgrade from idle/thinking
+        if (["idle", "thinking"].includes(this.stateOf(sessionId))) {
+          this.runState.set(sessionId, "thinking");
+        }
+        break;
+      case "message_update": {
+        const ae = e.assistantMessageEvent?.type;
+        if (ae === "thinking_delta" || ae === "thinking_start") {
+          this.runState.set(sessionId, "thinking");
+        } else if (ae === "text_delta" || ae === "tool_use_start") {
+          if (this.stateOf(sessionId) !== "tooling") this.runState.set(sessionId, "streaming");
+        }
+        break;
+      }
+      case "tool_execution_start":
+      case "tool_execution_update":
+        this.runState.set(sessionId, "tooling");
+        break;
+      case "agent_end":
+      case "agent_settled":
+        this.runState.set(sessionId, "idle");
+        break;
+      case "abort":
+        this.runState.set(sessionId, "idle");
+        break;
       default:
         break;
     }

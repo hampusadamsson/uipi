@@ -10,17 +10,13 @@
   const entries = $derived<TranscriptEntry[]>(
     attach ? deriveTranscript({ messages: attach.messages ?? [], events: attach.events ?? [] }) : []
   );
-  const isStreaming = $derived(bind(attach));
+  const run = $derived(ui.stateOf(sessionId));
 
   let scroller: HTMLElement | null = $state(null);
   $effect(() => {
     entries.length;
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   });
-
-  function bind(a: unknown): boolean {
-    return Boolean(a && (a as { isStreaming?: boolean }).isStreaming);
-  }
 </script>
 
 <div
@@ -32,8 +28,15 @@
   {#each entries as e, i (e.id + ":" + i)}
     <Message entry={e} />
   {/each}
-  {#if isStreaming}
-    <div class="text-xs text-muted-foreground animate-pulse my-2">working…</div>
+  {#if run !== "idle"}
+    <div class="text-xs text-muted-foreground animate-pulse my-2 flex items-center gap-2">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+      {run === "thinking"
+        ? "thinking…"
+        : run === "tooling"
+          ? "running tools…"
+          : "responding…"}
+    </div>
   {/if}
 </div>
 <InputBox {sessionId} />

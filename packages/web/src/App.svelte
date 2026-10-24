@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Attachment } from "@uipi/protocol";
-  import { ui } from "./lib/state.svelte";
+  import { ui, type RunState } from "./lib/state.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
   import NewSessionModal from "./components/NewSessionModal.svelte";
@@ -8,6 +8,7 @@
   import ModelPicker from "./components/ModelPicker.svelte";
   import ThinkingPicker from "./components/ThinkingPicker.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
   import { Toaster } from "$lib/components/ui/sonner/index.js";
   import { toast } from "svelte-sonner";
 
@@ -36,10 +37,16 @@
           | undefined)
       : undefined
   );
+  const run = $derived<RunState>(ui.stateOf(ui.activeId));
+  const runLabel = $derived<Record<RunState, string>>({
+    idle: "idle",
+    thinking: "thinking…",
+    streaming: "responding…",
+    tooling: "using tools…",
+  });
 </script>
 
 <div class="flex h-[100dvh] bg-background text-foreground overflow-hidden">
-  <!-- mobile drawer + backdrop -->
   {#if sidebarOpen}
     <button
       class="fixed inset-0 bg-black/60 z-30 md:hidden"
@@ -68,18 +75,24 @@
         <span class="text-xs text-muted-foreground truncate sm:hidden">
           {attach.cwd.split("/").pop()}
         </span>
+        <Badge
+          variant="secondary"
+          class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
+        >{runLabel[run]}</Badge>
         <span class="text-xs text-muted-foreground hidden lg:inline">
           {attach.model?.provider}/{attach.model?.modelId} · {attach.thinkingLevel}
         </span>
         <div class="flex-1"></div>
         <ThinkingPicker sessionId={attach.sessionId} />
         <ModelPicker sessionId={attach.sessionId} />
-        <Button
-          variant="outline"
-          size="sm"
-          class="text-xs hidden md:inline-flex"
-          onclick={() => ui.cmd({ type: "pi.compact", sessionId: attach.sessionId })}
-        >Compact</Button>
+        {#if run !== "idle"}
+          <Button
+            variant="destructive"
+            size="sm"
+            class="text-xs shrink-0"
+            onclick={() => ui.cmd({ type: "pi.abort", sessionId: attach.sessionId })}
+          >Stop</Button>
+        {/if}
       </header>
       <Chat sessionId={attach.sessionId} />
     {:else}

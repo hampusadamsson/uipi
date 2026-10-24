@@ -16,6 +16,7 @@
       | { isStreaming?: boolean; steering?: unknown[]; followUp?: unknown[] }
       | undefined
   );
+  const runState = $derived(ui.stateOf(sessionId));
   const steering = $derived(attach?.steering ?? []);
   const followUp = $derived(attach?.followUp ?? []);
 
@@ -73,10 +74,15 @@
   function send() {
     const v = text.trim();
     if (!v) return;
+    // optimistic run state; pi events will settle to idle when done
     if (v === "/compact") {
+      ui.runState.set(sessionId, "thinking");
       ui.cmd({ type: "pi.compact", sessionId });
+    } else if (attach && attach.isStreaming) {
+      // steering a live run — no state change, queue it
+      ui.cmd({ type: "pi.steer", sessionId, text: v });
     } else {
-      ui.cmd({ type: "pi.prompt", sessionId, text: v });
+      ui.sendPrompt(sessionId, v);
     }
     text = "";
     if (ta) ta.style.height = "auto";
@@ -133,15 +139,16 @@
       rows={2}
       enterkeyhint="send"
       autocomplete="off"
-      placeholder="Message ('/' for commands, @file to reference)"
+      placeholder={runState === "idle" ? "Message ('/' for commands, @file to reference)" : "…agent is working — send to steer"}
       class="min-h-11 max-h-40 resize-none text-base md:text-sm"
     ></Textarea>
     <div class="flex flex-col gap-1 shrink-0">
-      <Button class="min-h-11 px-5" onclick={send}>Send</Button>
-      {#if attach?.isStreaming}
+      {#if runState === "idle"}
+        <Button class="min-h-11 px-5" onclick={send}>Send</Button>
+      {:else}
         <Button
           variant="destructive"
-          class="min-h-9 px-3 text-xs"
+          class="min-h-11 px-5"
           onclick={() => ui.cmd({ type: "pi.abort", sessionId })}>Stop</Button
         >
       {/if}
