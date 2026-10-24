@@ -10,6 +10,8 @@ export interface TranscriptEntry {
   kind: "message" | "compaction" | "system";
   role?: string;
   text: string;
+  thinking: string;
+  thinkingActive: boolean;
   toolCalls: ToolCallView[];
   raw: unknown;
   id: string;
@@ -42,6 +44,8 @@ export function deriveTranscript(attach: {
         kind: "message",
         role: "user",
         text: s,
+        thinking: "",
+        thinkingActive: false,
         toolCalls: [],
         raw: null,
         id: `sent-${s.slice(0, 20)}-${s.length}`,
@@ -75,6 +79,8 @@ function fromMessage(m: unknown): TranscriptEntry {
     kind: "message",
     role: mm.role ?? "user",
     text: textOf(m),
+    thinking: "",
+    thinkingActive: false,
     toolCalls: [],
     raw: m,
     id: mm.id ?? Math.random().toString(36).slice(2),
@@ -94,12 +100,27 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
     case "message_update": {
       const last = out.at(-1);
       const role = ev.message?.role;
+      const ae = ev.assistantMessageEvent || {};
       if (last && last.role === role) {
-        last.text = textOf(ev.message);
+        if (ae.type === "thinking_delta") {
+          last.thinking += ae.delta || "";
+          last.thinkingActive = true;
+        } else if (ae.type === "thinking_end") {
+          last.thinkingActive = false;
+        } else if (ae.type === "text_delta") {
+          last.text = textOf(ev.message);
+          last.thinkingActive = false;
+        } else {
+          last.text = textOf(ev.message);
+        }
       } else {
-        out.push(fromMessage(ev.message));
+        const m = fromMessage(ev.message);
+        if (m.role === "assistant" && ae.type === "thinking_delta") {
+          m.thinking = ae.delta || "";
+          m.thinkingActive = true;
+        }
+        out.push(m);
       }
-      maybeUpdateToolCall(last, ev);
       break;
     }
     case "message_end": {
@@ -107,6 +128,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
       if (last && last.role === ev.message?.role) {
         last.text = textOf(ev.message);
         last.raw = ev.message;
+        last.thinkingActive = false;
       }
       maybeUpdateToolCall(last, ev);
       break;
@@ -120,7 +142,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
     case "compaction_start":
     case "compaction_end":
     case "branch_summary": {
-      out.push({ kind: "compaction", text: `${ev.type}`, toolCalls: [], raw: ev, id: `c${out.length}` });
+      out.push({ kind: "compaction", text: `${ev.type}`, thinking: "", thinkingActive: false, toolCalls: [], raw: ev, id: `c${out.length}` });
       break;
     }
     default:
@@ -166,7 +188,7 @@ function ensureAssistantEntry(out: TranscriptEntry[], callId: string): Transcrip
   // pi associates tool_call ids to assistant message; approximate: last assistant entry
   const lastAssistant = [...out].reverse().find((e) => e.role === "assistant");
   if (lastAssistant) return lastAssistant;
-  const e: TranscriptEntry = { kind: "message", role: "assistant", text: "", toolCalls: [], raw: null, id: callId };
+  const e: TranscriptEntry = { kind: "message", role: "assistant", text: "", thinking: "", thinkingActive: false, toolCalls: [], raw: null, id: callId };
   out.push(e);
   return e;
 }

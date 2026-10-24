@@ -49,6 +49,32 @@ describe("deriveTranscript", () => {
     expect(entries.filter((e) => e.role === "user")).toHaveLength(1);
   });
 
+  it("captures thinking deltas into a block that ends on message_end", () => {
+    const entries = deriveTranscript({
+      messages: [],
+      events: [
+        {
+          type: "message_update",
+          message: { role: "assistant", id: "a1", content: [{ type: "text", text: "part" }] },
+          assistantMessageEvent: { type: "thinking_delta", delta: "thinking hard" },
+        },
+        {
+          type: "message_update",
+          message: { role: "assistant", id: "a1", content: [{ type: "text", text: "part" }] },
+          assistantMessageEvent: { type: "thinking_delta", delta: " about it" },
+        },
+        {
+          type: "message_end",
+          message: { role: "assistant", id: "a1", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+        },
+      ],
+    });
+    const asst = entries.find((e) => e.role === "assistant");
+    expect(asst).toBeDefined();
+    expect(asst!.thinking).toBe("thinking hard about it");
+    expect(asst!.thinkingActive).toBe(false);
+  });
+
   it("keeps tool call cards from execution events", () => {
     const entries = deriveTranscript({
       messages: [userMsg],
