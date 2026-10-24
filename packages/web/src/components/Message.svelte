@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { ui } from "../lib/state.svelte";
-  import type { TranscriptEntry } from "../lib/transcript.js";
+  import { ui } from "$lib/state.svelte";
+  import type { TranscriptEntry } from "$lib/transcript.js";
+  import { Card, CardContent } from "$lib/components/ui/card/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
+  import * as Collapsible from "$lib/components/ui/collapsible/index.js";
+  import { Separator } from "$lib/components/ui/separator/index.js";
 
   let { entry }: { entry: TranscriptEntry } = $props();
-  let expanded = $state(true);
+  let open = $state(true);
 
   const isUser = $derived(entry.role === "user");
   const isAssistant = $derived(entry.role === "assistant");
@@ -12,29 +16,33 @@
 <div class="my-2">
   {#if isUser}
     <div class="flex justify-end">
-      <div class="max-w-[80%] bg-indigo-900/40 border border-indigo-800/50 rounded-lg px-3 py-2 text-sm whitespace-pre-wrap">{entry.text}</div>
+      <Card class="max-w-[80%] bg-muted border-muted py-2 gap-1">
+        <CardContent class="px-3 text-sm whitespace-pre-wrap">{entry.text}</CardContent>
+      </Card>
     </div>
   {:else if isAssistant || entry.toolCalls.length > 0}
     <div class="max-w-[90%]">
       {#if entry.text}
-        {@render Md(entry.text)}
+        <div class="text-sm">{entry.text}</div>
       {/if}
       {#each entry.toolCalls as tc, i (i)}
-        <details class="mt-1 border border-zinc-800 rounded" open={expanded}>
-          <summary class="cursor-pointer text-xs px-2 py-1 flex gap-2 items-center">
-            <span class="font-mono {tc.isError ? 'text-red-400' : 'text-emerald-400'}">{tc.name}</span>
-            <span class="text-zinc-500 truncate flex-1">{tc.argsPreview}</span>
-            {#if !tc.done}<span class="text-zinc-500 animate-pulse">running…</span>{/if}
-          </summary>
-          <pre class="text-xs bg-zinc-950 border-t border-zinc-800 px-2 py-1 max-h-64 overflow-auto whitespace-pre-wrap">{tc.output || "…"}</pre>
-        </details>
+        <Collapsible.Root bind:open class="mt-1">
+          <Collapsible.Trigger
+            class="w-full flex gap-2 items-center rounded-md border border-border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+          >
+            <Badge variant="outline" class={tc.isError ? "text-destructive" : "text-emerald-500"}>{tc.name}</Badge>
+            <span class="text-muted-foreground truncate flex-1 text-left">{tc.argsPreview}</span>
+            {#if !tc.done}<span class="text-muted-foreground animate-pulse">running…</span>{/if}
+          </Collapsible.Trigger>
+          <Collapsible.Content>
+            <pre class="text-xs bg-muted/50 border-t border-border rounded-b-md px-2 py-1 max-h-64 overflow-auto whitespace-pre-wrap">{tc.output || "…"}</pre>
+          </Collapsible.Content>
+        </Collapsible.Root>
       {/each}
     </div>
   {:else}
-    <div class="text-xs text-zinc-500 my-1">— {entry.text || entry.kind} —</div>
+    <div class="text-xs text-muted-foreground my-1 flex items-center gap-2">
+      <Separator class="w-6" /> {entry.text || entry.kind}
+    </div>
   {/if}
 </div>
-
-{#snippet Md(text: string)}
-  <div class="text-sm prose prose-invert prose-sm max-w-none">{text}</div>
-{/snippet}

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ui } from "../lib/state.svelte";
-  import { deriveTranscript, type TranscriptEntry } from "../lib/transcript.js";
+  import { ui } from "$lib/state.svelte";
+  import { deriveTranscript, type TranscriptEntry } from "$lib/transcript.js";
   import Message from "./Message.svelte";
   import InputBox from "./InputBox.svelte";
+  import * as ScrollArea from "$lib/components/ui/scroll-area/index.js";
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -23,12 +24,15 @@
   }
 </script>
 
-<div bind:this={scroller} class="flex-1 overflow-y-auto px-4 py-3">
+<div
+  bind:this={scroller}
+  class="flex-1 overflow-y-auto px-4 py-3"
+>
   {#each entries as e, i (e.id + ":" + i)}
     <Message entry={e} />
   {/each}
   {#if isStreaming}
-    <div class="text-xs text-zinc-500 animate-pulse my-2">working…</div>
+    <div class="text-xs text-muted-foreground animate-pulse my-2">working…</div>
   {/if}
 </div>
 <InputBox {sessionId} />

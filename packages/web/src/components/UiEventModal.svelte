@@ -1,11 +1,21 @@
 <script lang="ts">
-  import { ui } from "../lib/state.svelte";
+  import { ui } from "$lib/state.svelte";
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
   import type { UiSelectRequest, UiDialogRequest } from "@uipi/protocol";
 
   const current = $derived(ui.uiEvents.at(0)!);
+  let open = $derived(ui.uiEvents.length > 0);
 
   function dismiss() {
     ui.uiEvents = ui.uiEvents.slice(1);
+  }
+
+  function cancel() {
+    if (!current) return;
+    if (isSelect(current)) resolveSelect(current, null);
+    else if (isDialog(current)) resolveDialog(current, false);
+    else dismiss();
   }
 
   function resolveSelect(req: UiSelectRequest, index: number | null) {
@@ -17,63 +27,57 @@
     ui.cmd({ type: "ui.dialogResponse", sessionId: req.sessionId, dialogId: req.dialogId, value });
     dismiss();
   }
-</script>
 
-{#if current}
-  <div class="fixed inset-0 bg-black/60 grid place-items-center z-50">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-[28rem]">
-      {#if isSelect(current)}
-        <h3 class="font-semibold mb-3">{current.title}</h3>
-        <div class="flex flex-col gap-1">
-          {#each optionsOf(current) as opt, i}
-            <button
-              class="text-left text-sm px-3 py-1.5 rounded hover:bg-zinc-800 border border-zinc-800"
-              onclick={() => resolveSelect(current, i)}
-            >{labelOf(opt)}</button>
-          {/each}
-          <button class="text-left text-sm text-zinc-500 px-3 py-1" onclick={() => resolveSelect(current, null)}>
-            Cancel
-          </button>
-        </div>
-      {:else if isDialog(current)}
-        <h3 class="font-semibold mb-3">{current.title}</h3>
-        <pre class="text-xs text-zinc-400 mb-3 whitespace-pre-wrap">{JSON.stringify(current.payload, null, 2)}</pre>
-        <div class="flex justify-end gap-2">
-          <button class="text-sm px-3 py-1 rounded border border-zinc-700" onclick={() => resolveDialog(current, false)}>Dismiss</button>
-          <button class="text-sm px-3 py-1 rounded bg-indigo-600 text-white" onclick={() => resolveDialog(current, true)}>OK</button>
-        </div>
-      {:else}
-        <div class="text-sm">
-          <span class={levelClass(current.level)}>
-            {current.message}
-          </span>
-        </div>
-        <div class="flex justify-end mt-3">
-          <button class="text-sm px-3 py-1 rounded border border-zinc-700" onclick={dismiss}>Close</button>
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
-
-<script lang="ts" context="module">
-  import type { UiEvent } from "@uipi/protocol";
-
-  function isSelect(e: UiEvent): e is UiSelectRequest & { options: unknown[] } {
+  function isSelect(e: { kind?: string }): e is UiSelectRequest & { options: unknown[] } {
     return e.kind === "select" && Array.isArray((e as UiSelectRequest).options);
   }
-  function isDialog(e: UiEvent): e is UiDialogRequest {
+  function isDialog(e: { kind?: string }): e is UiDialogRequest {
     return e.kind === "dialog";
-  }
-  function optionsOf(e: UiEvent): { label?: string }[] {
-    return (e as UiSelectRequest).options ?? [];
   }
   function labelOf(o: unknown): string {
     if (typeof o === "string") return o;
     const oo = o as { label?: string };
     return oo?.label ?? JSON.stringify(o);
   }
-  function levelClass(level: string): string {
-    return level === "error" ? "text-red-400" : level === "warn" ? "text-amber-400" : "text-zinc-300";
-  }
 </script>
+
+<Dialog.Root {open} onOpenChange={(o) => { if (!o) cancel(); }}>
+  <Dialog.Content class="sm:max-w-[28rem]">
+    {#if current}
+      {#if isSelect(current)}
+        <Dialog.Header>
+          <Dialog.Title>{current.title}</Dialog.Title>
+        </Dialog.Header>
+        <div class="flex flex-col gap-1 max-h-96 overflow-y-auto">
+          {#each current.options as opt, i}
+            <Button variant="outline" class="justify-start text-sm font-normal" onclick={() => resolveSelect(current, i)}>
+              {labelOf(opt)}
+            </Button>
+          {/each}
+        </div>
+        <Dialog.Footer>
+          <Button variant="ghost" onclick={() => resolveSelect(current, null)}>Cancel</Button>
+        </Dialog.Footer>
+      {:else if isDialog(current)}
+        <Dialog.Header>
+          <Dialog.Title>{current.title}</Dialog.Title>
+        </Dialog.Header>
+        <pre class="text-xs text-muted-foreground whitespace-pre-wrap max-h-64 overflow-auto">{JSON.stringify(current.payload, null, 2)}</pre>
+        <Dialog.Footer>
+          <Button variant="outline" onclick={() => resolveDialog(current, false)}>Dismiss</Button>
+          <Button onclick={() => resolveDialog(current, true)}>OK</Button>
+        </Dialog.Footer>
+      {:else}
+        <Dialog.Header>
+          <Dialog.Title>{current.kind}</Dialog.Title>
+          <Dialog.Description class={current.level === "error" ? "text-destructive" : current.level === "warn" ? "text-amber-500" : ""}>
+            {current.message}
+          </Dialog.Description>
+        </Dialog.Header>
+        <Dialog.Footer>
+          <Button variant="outline" onclick={dismiss}>Close</Button>
+        </Dialog.Footer>
+      {/if}
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
