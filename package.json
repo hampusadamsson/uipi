@@ -1,0 +1,17 @@
+{
+  "name": "uipi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web UI harness over the pi coding agent SDK — multi-session, pi-parity config/extensions",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "start": "pnpm --filter @uipi/server start",
+    "check": "pnpm -r run check",
+    "test": "pnpm --filter @uipi/server test"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}
