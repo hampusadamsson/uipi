@@ -217,17 +217,21 @@ export class UiState {
         break;
       case "message_end": {
         // context usage ≈ input + cacheRead + cacheWrite of latest assistant msg
-        const u =
-          (
-            ev as { message?: { usage?: Record<string, number> } }
-          ).message?.usage;
-        if (u) {
+        const msg = (ev as { message?: { usage?: Record<string, number>; stopReason?: string } }).message;
+        if (msg?.usage) {
           this.contextTokens.set(
             sessionId,
-            (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0)
+            (msg.usage.input ?? 0) +
+              (msg.usage.cacheRead ?? 0) +
+              (msg.usage.cacheWrite ?? 0)
           );
         }
-        this.runState.set(sessionId, "idle");
+        // toolUse → agent loop continues; don't flicker to idle
+        if (msg?.stopReason === "toolUse") {
+          this.runState.set(sessionId, "tooling");
+        } else {
+          this.runState.set(sessionId, "idle");
+        }
         break;
       }
       default:

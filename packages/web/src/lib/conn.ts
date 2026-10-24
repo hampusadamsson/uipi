@@ -13,11 +13,13 @@ export class Conn {
   onMessage: (m: S2C) => void = () => {};
   onOpen: () => void = () => {};
   onClose: () => void = () => {};
+  private retryMs = 1000;
 
   connect(): void {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     this.ws = new WebSocket(`${proto}://${location.host}/ws`);
     this.ws.onopen = () => {
+      this.retryMs = 1000;
       for (const m of this.pending) this.send(m);
       this.pending = [];
       this.onOpen();
@@ -37,7 +39,12 @@ export class Conn {
       }
       this.onMessage(msg);
     };
-    this.ws.onclose = () => this.onClose();
+    this.ws.onclose = () => {
+      this.onClose();
+      // auto-reconnect with capped backoff until server is back
+      setTimeout(() => this.connect(), this.retryMs);
+      this.retryMs = Math.min(this.retryMs * 2, 10000);
+    };
   }
 
   private send(m: C2S): void {

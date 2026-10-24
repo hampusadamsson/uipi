@@ -2,20 +2,33 @@
   import { ui } from "$lib/state.svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { toast } from "svelte-sonner";
   import type { UiSelectRequest, UiDialogRequest } from "@uipi/protocol";
 
-  const current = $derived(ui.uiEvents.at(0)!);
-  let open = $derived(ui.uiEvents.length > 0);
+  const current = $derived(
+    ui.uiEvents.find((e) => e.kind !== "notification")
+  );
+  let open = $derived(current !== undefined);
+
+  // non-blocking notifications → toasts, popped from the queue
+  $effect(() => {
+    const notif = ui.uiEvents.find((e) => e.kind === "notification");
+    if (!notif) return;
+    const n = notif as { message: string; level: string };
+    if (n.level === "error") toast.error(n.message);
+    else if (n.level === "warn") toast.warning(n.message);
+    else toast.info(n.message);
+    ui.uiEvents = ui.uiEvents.filter((e) => e !== notif);
+  });
 
   function dismiss() {
-    ui.uiEvents = ui.uiEvents.slice(1);
+    ui.uiEvents = ui.uiEvents.filter((e) => e !== current);
   }
 
   function cancel() {
     if (!current) return;
     if (isSelect(current)) resolveSelect(current, null);
     else if (isDialog(current)) resolveDialog(current, false);
-    else dismiss();
   }
 
   function resolveSelect(req: UiSelectRequest, index: number | null) {
@@ -66,16 +79,6 @@
         <Dialog.Footer>
           <Button variant="outline" onclick={() => resolveDialog(current, false)}>Dismiss</Button>
           <Button onclick={() => resolveDialog(current, true)}>OK</Button>
-        </Dialog.Footer>
-      {:else}
-        <Dialog.Header>
-          <Dialog.Title>{current.kind}</Dialog.Title>
-          <Dialog.Description class={current.level === "error" ? "text-destructive" : current.level === "warn" ? "text-amber-500" : ""}>
-            {current.message}
-          </Dialog.Description>
-        </Dialog.Header>
-        <Dialog.Footer>
-          <Button variant="outline" onclick={dismiss}>Close</Button>
         </Dialog.Footer>
       {/if}
     {/if}

@@ -20,7 +20,7 @@
   const steering = $derived(attach?.steering ?? []);
   const followUp = $derived(attach?.followUp ?? []);
 
-  const slashItems = $derived(["/compact", "/model", "/thinking", "/new", "/clear", "/quit"]);
+  const slashItems = $derived(["/compact", "/new"]);
 
   function textOf(q: unknown): string {
     const s =

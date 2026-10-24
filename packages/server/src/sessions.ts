@@ -155,7 +155,6 @@ export class SessionService {
     try {
       const live = await this.materialize(cwd, undefined, agentDir);
       this.pushRecentDir(cwd);
-      this.pushRecentDir(cwd);
       reply(await attachPayload(live));
       await this.replySessions(reply);
     } catch (e) {
