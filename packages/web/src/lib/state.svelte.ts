@@ -26,6 +26,10 @@ export class UiState {
   wantNew = $state(false);
   /** sessionId -> live run state */
   runState = new SvelteMap<string, RunState>();
+  /** sessionId -> live pi events (reactive; pushes trigger rerenders) */
+  liveEvents = new SvelteMap<string, unknown[]>();
+  /** sessionId -> user messages sent locally (reactive; shown instantly) */
+  sentMessages = new SvelteMap<string, string[]>();
 
   init() {
     this.conn.onOpen = () => {
@@ -97,6 +101,8 @@ export class UiState {
     const a = m as unknown as Attachment;
     a.events = [];
     this.attached.set(m.sessionId, a);
+    this.liveEvents.set(m.sessionId, []);
+    this.sentMessages.set(m.sessionId, []);
     this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
     this.activeId = m.sessionId;
     void this.refreshModels();
@@ -107,6 +113,8 @@ export class UiState {
     this.conn.sendFire({ type: "proto.detach", sessionId: id });
     this.attached.delete(id);
     this.runState.delete(id);
+    this.liveEvents.delete(id);
+    this.sentMessages.delete(id);
     if (this.activeId === id) this.activeId = [...this.attached.keys()][0] ?? null;
   }
 
@@ -117,6 +125,8 @@ export class UiState {
   /** optimistic send: set pending state right away, server events will settle it */
   sendPrompt(sessionId: string, text: string): void {
     this.runState.set(sessionId, "thinking");
+    const sent = this.sentMessages.get(sessionId) ?? [];
+    this.sentMessages.set(sessionId, [...sent, text]);
     this.cmd({ type: "pi.prompt", sessionId, text });
   }
 
@@ -138,12 +148,24 @@ export class UiState {
         const a = m as unknown as Attachment;
         a.events = [];
         this.attached.set(m.sessionId, a);
+        this.liveEvents.set(m.sessionId, []);
+        this.sentMessages.set(m.sessionId, []);
         this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
         break;
       }
       case "pi.evt": {
         const a = this.attached.get(m.sessionId);
         if (a) a.events.push(m.event);
+        const le = this.liveEvents.get(m.sessionId);
+        if (le) le.push(m.event);
+        // once the authoritative user echo arrives, drop the optimistic copy
+        if ((m.event as { type?: string })?.type === "message_start") {
+          const role = (m.event as { message?: { role?: string } }).message?.role;
+          if (role === "user") {
+            const sent = this.sentMessages.get(m.sessionId);
+            if (sent && sent.length > 0) this.sentMessages.set(m.sessionId, []);
+          }
+        }
         this.applyRunEvent(m.sessionId, m.event);
         break;
       }

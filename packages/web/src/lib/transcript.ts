@@ -27,13 +27,25 @@ export interface ToolCallView {
 export function deriveTranscript(attach: {
   messages: unknown[];
   events: unknown[];
+  sentMessages?: string[];
 }): TranscriptEntry[] {
   const out: TranscriptEntry[] = [];
-  // 1. initial snapshot messages
+  // 1. snapshot messages (history at attach time)
   for (const m of attach.messages ?? []) {
     out.push(fromMessage(m));
   }
-  // 2. fold live events on top
+  // 2. optimistic user messages not yet echoed by the server
+  for (const s of attach.sentMessages ?? []) {
+    out.push({
+      kind: "message",
+      role: "user",
+      text: s,
+      toolCalls: [],
+      raw: null,
+      id: `sent-${s.slice(0, 20)}-${s.length}`,
+    });
+  }
+  // 3. fold live events on top
   for (const ev of attach.events ?? []) {
     applyEvent(out, ev);
   }

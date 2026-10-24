@@ -7,14 +7,20 @@
   let { sessionId }: { sessionId: string } = $props();
 
   const attach = $derived(ui.attached.get(sessionId));
+  const live = $derived(ui.liveEvents.get(sessionId) ?? []);
+  const sent = $derived(ui.sentMessages.get(sessionId) ?? []);
   const entries = $derived<TranscriptEntry[]>(
-    attach ? deriveTranscript({ messages: attach.messages ?? [], events: attach.events ?? [] }) : []
+    attach
+      ? deriveTranscript({ messages: attach.messages ?? [], events: live, sentMessages: sent })
+      : []
   );
   const run = $derived(ui.stateOf(sessionId));
 
   let scroller: HTMLElement | null = $state(null);
   $effect(() => {
-    entries.length;
+    // track reactive deps: array lengths change on every push
+    const n = entries.length;
+    void live.length; void sent.length;
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   });
 </script>
