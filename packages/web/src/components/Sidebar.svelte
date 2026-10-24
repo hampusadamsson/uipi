@@ -36,11 +36,30 @@
       >
         <div class="text-sm truncate flex items-center gap-1.5">
           {#if s.live}
-            <span class="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+            {@const st = ui.stateOf(s.sessionId)}
+            <span
+              class="inline-block w-2 h-2 rounded-full shrink-0 {
+                st === 'idle'
+                  ? 'bg-green-500'
+                  : st === 'thinking'
+                    ? 'bg-amber-400 animate-pulse'
+                    : st === 'tooling'
+                      ? 'bg-blue-400 animate-pulse'
+                      : 'bg-violet-400 animate-pulse'
+              }"
+              title={st}
+            ></span>
+          {:else}
+            <span class="inline-block w-2 h-2 rounded-full shrink-0 bg-zinc-600" title="archived"></span>
           {/if}
           {s.displayName || s.sessionFile.split("/").pop()}
         </div>
-        <div class="text-xs text-muted-foreground truncate">{s.cwd}</div>
+        <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
+          <span class="truncate">{s.cwd}</span>
+          {#if ui.contextTokens.get(s.sessionId)}
+            <span class="shrink-0">· {Math.round((ui.contextTokens.get(s.sessionId) ?? 0) / 1000)}k ctx</span>
+          {/if}
+        </div>
       </button>
     {:else}
       <div class="text-xs text-muted-foreground px-3 py-2">no sessions yet</div>

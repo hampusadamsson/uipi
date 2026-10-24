@@ -82,6 +82,11 @@
         <span class="text-xs text-muted-foreground hidden lg:inline">
           {attach.model?.provider}/{attach.model?.modelId} · {attach.thinkingLevel}
         </span>
+        {#if ui.contextTokens.get(attach.sessionId)}
+          <Badge variant="outline" class="text-[10px] shrink-0 font-normal">
+            {Math.round((ui.contextTokens.get(attach.sessionId) ?? 0) / 1000)}k ctx
+          </Badge>
+        {/if}
         <div class="flex-1"></div>
         <ThinkingPicker sessionId={attach.sessionId} />
         <ModelPicker sessionId={attach.sessionId} />

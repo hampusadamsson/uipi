@@ -30,6 +30,8 @@ export class UiState {
   liveEvents = new SvelteMap<string, unknown[]>();
   /** sessionId -> user messages sent locally (reactive; shown instantly) */
   sentMessages = new SvelteMap<string, string[]>();
+  /** sessionId -> latest context tokens (input+cacheRead+cacheWrite from message_end) */
+  contextTokens = new SvelteMap<string, number>();
 
   init() {
     this.conn.onOpen = () => {
@@ -210,11 +212,24 @@ export class UiState {
         break;
       case "agent_end":
       case "agent_settled":
-        this.runState.set(sessionId, "idle");
-        break;
       case "abort":
         this.runState.set(sessionId, "idle");
         break;
+      case "message_end": {
+        // context usage ≈ input + cacheRead + cacheWrite of latest assistant msg
+        const u =
+          (
+            ev as { message?: { usage?: Record<string, number> } }
+          ).message?.usage;
+        if (u) {
+          this.contextTokens.set(
+            sessionId,
+            (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0)
+          );
+        }
+        this.runState.set(sessionId, "idle");
+        break;
+      }
       default:
         break;
     }

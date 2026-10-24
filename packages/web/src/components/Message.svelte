@@ -30,7 +30,7 @@
           >
             <span class="{thinkOpen ? 'rotate-90' : ''} transition-transform">▶</span>
             <Badge variant="outline" class="font-normal">
-              {entry.thinkingActive ? "✨ thinking…" : "💭 thought for a bit"}
+              {entry.thinkingActive ? "thinking…" : "thought for a bit"}
             </Badge>
             <span class="truncate flex-1 text-left opacity-60">
               {entry.thinking.slice(0, 60)}
@@ -43,7 +43,7 @@
           </Collapsible.Content>
         </Collapsible.Root>
       {:else if entry.thinkingActive}
-        <div class="text-xs text-muted-foreground animate-pulse my-1">💭 thinking…</div>
+        <div class="text-xs text-muted-foreground animate-pulse my-1">thinking…</div>
       {/if}
       {#if entry.text}
         <div class="text-sm whitespace-pre-wrap break-words">{entry.text}</div>
