@@ -11,12 +11,13 @@
 
   const attach = $derived(ui.attached.get(sessionId) as { model?: { provider: string; modelId: string } } | undefined);
   const cur = $derived(attach?.model);
+  const all = $derived(ui.models.length <= 50);
   const visible = $derived.by(() => {
     const q = filter.trim().toLowerCase();
     const list = q
       ? ui.models.filter((m) => `${m.provider}/${m.modelId} ${m.displayName}`.toLowerCase().includes(q))
       : ui.models;
-    return list.slice(0, 300);
+    return list.slice(0, all ? 100 : 300);
   });
 
   function pick(m: ModelInfo) {

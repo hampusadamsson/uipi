@@ -315,7 +315,9 @@ function sessionModelRef(session: AgentSession) {
 }
 
 function listSessionModels(session: AgentSession) {
-  const raw = session.modelRuntime.getAllModels() as unknown as PiModel<never>[];
+  // Only models usable per pi config (auth-configured providers + scoped models),
+  // mirroring terminal pi's model list — not the full registry.
+  const raw = session.modelRuntime.getAvailableSnapshot() as unknown as PiModel<never>[];
   return raw.map((m) => ({
     provider: String(m.provider),
     modelId: String(m.id),
