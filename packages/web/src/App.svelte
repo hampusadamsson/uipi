@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "./lib/state";
+  import { ui } from "./lib/state.svelte";
   import type { Attachment } from "@uipi/protocol";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";

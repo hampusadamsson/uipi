@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../lib/state";
+  import { ui } from "../lib/state.svelte";
 
   function textOf(q: unknown): string {
     const s = typeof q === "string" ? q : (q as { text?: string; message?: string })?.text ?? (q as { message?: string })?.message ?? "";

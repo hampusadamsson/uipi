@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../lib/state";
+  import { ui } from "../lib/state.svelte";
   import type { ModelInfo } from "@uipi/protocol";
 
   let { sessionId }: { sessionId: string } = $props();

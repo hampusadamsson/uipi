@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../lib/state";
+  import { ui } from "../lib/state.svelte";
   import type { TranscriptEntry } from "../lib/transcript.js";
 
   let { entry }: { entry: TranscriptEntry } = $props();

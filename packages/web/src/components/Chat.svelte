@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../lib/state";
+  import { ui } from "../lib/state.svelte";
   import { deriveTranscript, type TranscriptEntry } from "../lib/transcript.js";
   import Message from "./Message.svelte";
   import InputBox from "./InputBox.svelte";

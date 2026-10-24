@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "../lib/state";
+  import { ui } from "../lib/state.svelte";
   import type { UiSelectRequest, UiDialogRequest } from "@uipi/protocol";
 
   const current = $derived(ui.uiEvents.at(0)!);

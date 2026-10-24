@@ -1,4 +1,4 @@
-import { ui } from "./state";
+import { ui } from "./state.svelte.js";
 import type { S2C } from "@uipi/protocol";
 
 /**
