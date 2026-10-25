@@ -1,19 +1,39 @@
 <script lang="ts">
-  import { ui } from "$lib/state.svelte";
+  import { ui, rolePickerItems } from "$lib/state.svelte";
   import * as Popover from "$lib/components/ui/popover/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
-  import { Input } from "$lib/components/ui/input/index.js";
 
   let { sessionId }: { sessionId: string } = $props();
   let open = $state(false);
-  let name = $state("");
+  let names = $state<string[]>([]);
+  let loading = $state(false);
 
   const cur = $derived(ui.roleOf(sessionId));
   const chip = $derived(ui.roleChip(sessionId));
+  const items = $derived(rolePickerItems(names, cur));
 
-  // NOTE: role NAMES are not on the wire. `commands` carries { name, description }
-  // only, and there is no getArgumentCompletions request in the protocol, so the
-  // picker cannot list roles: it takes a typed name instead.
+  // Ask on every open: the names come from the `/role` command's own argument
+  // completions, so a hand-edited roles.json must not be cached in the client.
+  $effect(() => {
+    if (!open) return;
+    let cancelled = false;
+    names = []; // don't show a stale name the extension no longer offers
+    loading = true;
+    ui.roleNames(sessionId)
+      .then((list) => {
+        if (!cancelled) names = list;
+      })
+      .catch(() => {
+        if (!cancelled) names = []; // picker still offers (none) + reload
+      })
+      .finally(() => {
+        if (!cancelled) loading = false;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function apply(role: string | null, reload = false) {
     ui.cmd({ type: "proto.setRole", sessionId, role, ...(reload ? { reload: true } : {}) });
     open = false;
@@ -22,11 +42,9 @@
     void ui.refreshSessions();
   }
 
-  function submit() {
-    const v = name.trim();
-    if (!v) return;
-    name = "";
-    apply(v);
+  function pick(item: (typeof items)[number]) {
+    if (item.kind === "reload") apply(item.role, true);
+    else apply(item.role);
   }
 </script>
 
@@ -41,35 +59,21 @@
     </Popover.Trigger>
     <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-2" align="end">
       <div class="text-[10px] text-muted-foreground px-1">role — a preset, not a lock</div>
-      <div class="flex gap-1">
-        <Input
-          class="h-8 text-xs"
-          placeholder="role name…"
-          bind:value={name}
-          onkeydown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <Button variant="secondary" size="sm" class="text-xs shrink-0" onclick={submit}>set</Button>
+      <div class="max-h-72 overflow-y-auto">
+        {#each items as item (item.kind + item.label)}
+          <button
+            class="w-full text-left text-xs px-3 py-2 min-h-8 rounded-md hover:bg-accent hover:text-accent-foreground {item.current
+              ? 'text-primary'
+              : ''}"
+            onclick={() => pick(item)}
+          >
+            {item.label}
+          </button>
+        {/each}
+        {#if !loading && names.length === 0}
+          <div class="text-xs text-muted-foreground px-3 py-2">no roles found</div>
+        {/if}
       </div>
-      <div class="text-[10px] text-muted-foreground px-1">
-        server exposes no role list — type the name
-      </div>
-      <button
-        class="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground"
-        onclick={() => apply(null)}
-      >
-        (none)
-      </button>
-      <button
-        class="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground"
-        onclick={() => apply(cur, true)}
-      >
-        reload roles.json, keep “{cur}”
-      </button>
     </Popover.Content>
   </Popover.Root>
 {/if}

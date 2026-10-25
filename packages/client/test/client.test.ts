@@ -69,6 +69,15 @@ class FakeServer {
           sessionFile: this.sessionFile,
         } as S2C);
         break;
+      case "proto.roleNames":
+        // the real server answers from `/role`'s argument completions, reserved
+        // words already filtered out
+        reply({
+          type: "proto.roleNames",
+          sessionId: this.sessionId,
+          names: ["work", "architect"],
+        } as S2C);
+        break;
       case "pi.prompt": {
         // real server: user echo, then streaming assistant text, then settle
         socket.push({ type: "pi.evt", sessionId: this.sessionId, event: { type: "agent_start" } });
@@ -335,6 +344,29 @@ describe("UipiClient headless", () => {
   it("reports false for an unknown /s/<hash> path", async () => {
     expect(await client.openPath("/s/00000000")).toBe(false);
     expect(await client.openPath("/not-a-session")).toBe(false);
+  });
+
+  it("resolves role names from the correlated proto.roleNames reply", async () => {
+    await client.newSession("/proj");
+    await expect(client.roleNames("sess-1")).resolves.toEqual(["work", "architect"]);
+  });
+
+  it("asks for role names with the session id and correlates by request id", async () => {
+    await client.newSession("/proj");
+    const sent: Record<string, unknown>[] = [];
+    const socket = server.sockets[0];
+    const original = socket.send.bind(socket);
+    socket.send = (d: string) => {
+      sent.push(JSON.parse(d));
+      original(d);
+    };
+
+    await client.roleNames("sess-1");
+
+    const req = sent.find((m) => m.type === "proto.roleNames");
+    expect(req).toMatchObject({ type: "proto.roleNames", sessionId: "sess-1" });
+    // a request is always correlated, so the reply never lands in onMessage
+    expect(typeof req?.id).toBe("string");
   });
 
   it("tracks a compaction entry in the transcript", async () => {

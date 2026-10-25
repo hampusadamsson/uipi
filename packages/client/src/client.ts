@@ -188,6 +188,24 @@ export class UipiClient {
     }
   }
 
+  /**
+   * Role names the live session's `/role` extension command offers as argument
+   * completions (reserved words filtered out server-side). Requested fresh on
+   * every picker open — names change when roles.json is hand-edited, and only
+   * the extension knows the current set.
+   */
+  async roleNames(sessionId: string): Promise<string[]> {
+    const m = await this.conn.request<{
+      type: "proto.roleNames";
+      sessionId: string;
+      names: string[];
+    }>({
+      type: "proto.roleNames",
+      sessionId,
+    });
+    return m.names ?? [];
+  }
+
   async newSession(cwd: string, agentDir?: string): Promise<void> {
     const m = await this.conn.request<AttachedMsg>({ type: "proto.newSession", cwd, agentDir });
     await this.onAttached(m);

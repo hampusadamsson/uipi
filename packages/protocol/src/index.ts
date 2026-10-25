@@ -19,6 +19,13 @@ export type C2S =
       sessionId: string;
     }
   | { type: "proto.setRole"; sessionId: string; role: string | null; reload?: boolean }
+  /**
+   * Ask for the role names the `/role` extension command offers as argument
+   * completions. Same discriminant as the reply, like `proto.recentDirs`: the
+   * request carries no payload beyond the session, so the direction is
+   * unambiguous.
+   */
+  | { type: "proto.roleNames"; sessionId: string }
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
@@ -144,6 +151,17 @@ export type S2C = S2CBase &
         followUp: unknown[];
         /** stable session file path (durable across reloads; live sessions only) */
         sessionFile: string | null;
+      }
+    | {
+        /**
+         * Role names from `/role`'s own argument completions, reserved words
+         * (`none`, `reload`, `keys`) filtered out. Empty when the roles
+         * extension is not installed or completions fail — the picker degrades
+         * to `(none)` + reload rather than erroring.
+         */
+        type: "proto.roleNames";
+        sessionId: string;
+        names: string[];
       }
     | { type: "proto.detached"; sessionId: string }
     | {

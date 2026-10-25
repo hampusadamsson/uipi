@@ -1,11 +1,12 @@
 // Role plumbing tests for the Svelte adapter: what the header chip renders,
-// what the sidebar row shows, and which slash items the input box offers.
+// what the sidebar row shows, which rows the picker lists, and which slash items
+// the input box offers.
 //
 // These pin the *view data* contract only — no Svelte mount needed, same style
 // as state-adapter.svelte.test.ts. The wire shape is the client's
 // (`proto.attached` / `proto.sessionState` / `proto.sessions`).
 import { describe, it, expect } from "vitest";
-import { UiState, sessionRoleText } from "../src/lib/state.svelte.js";
+import { UiState, sessionRoleText, rolePickerItems } from "../src/lib/state.svelte.js";
 import type { AttachedSession } from "@uipi/client";
 import type { S2C, SessionSummary } from "@uipi/protocol";
 
@@ -129,6 +130,72 @@ describe("sidebar role badge", () => {
     ];
     sync(ui);
     expect(ui.sessions.map(sessionRoleText)).toEqual(["architect", null]);
+  });
+});
+
+describe("role picker data", () => {
+  it("marks the current role and lists (none) + reload", () => {
+    const items = rolePickerItems(["work", "architect"], "architect");
+    expect(items.filter((i) => i.kind === "role").map((i) => i.label)).toEqual([
+      "work",
+      "architect",
+    ]);
+    expect(items.find((i) => i.label === "architect")?.current).toBe(true);
+    expect(items.find((i) => i.label === "work")?.current).toBe(false);
+    expect(items.some((i) => i.kind === "none")).toBe(true);
+    expect(items.some((i) => i.kind === "reload")).toBe(true);
+  });
+
+  it("role names keep the extension's order (roles.json order), not sorted", () => {
+    expect(rolePickerItems(["work", "architect"], null).map((i) => i.kind + ":" + i.label)).toEqual(
+      [
+        "role:work",
+        "role:architect",
+        "none:(none)",
+        "reload:reload roles.json, keep \u201cnone\u201d",
+      ],
+    );
+  });
+
+  it("(none) is current when roleless and sends role: null", () => {
+    const items = rolePickerItems(["work"], null);
+    const none = items.find((i) => i.kind === "none")!;
+    expect(none.current).toBe(true);
+    expect(none.role).toBeNull();
+  });
+
+  it("reload keeps the current role and carries reload semantics", () => {
+    const items = rolePickerItems(["work", "architect"], "architect");
+    const reload = items.find((i) => i.kind === "reload")!;
+    expect(reload.role).toBe("architect");
+    expect(reload.current).toBe(false);
+  });
+
+  it("no names still yields exactly (none) + reload", () => {
+    // roles extension not installed: the picker degrades gracefully
+    expect(rolePickerItems([], null).map((i) => i.kind)).toEqual(["none", "reload"]);
+  });
+
+  it("blank and duplicate names are dropped defensively", () => {
+    expect(rolePickerItems(["work", "", "work"], null).map((i) => i.label)).toEqual([
+      "work",
+      "(none)",
+      "reload roles.json, keep \u201cnone\u201d",
+    ]);
+  });
+
+  it("the adapter passes roleNames through to the client request", async () => {
+    const ui = new UiState();
+    const asked: string[] = [];
+    (ui.client as unknown as { roleNames: (id: string) => Promise<string[]> }).roleNames = async (
+      id: string,
+    ) => {
+      asked.push(id);
+      return ["work"];
+    };
+
+    await expect(ui.roleNames("s1")).resolves.toEqual(["work"]);
+    expect(asked).toEqual(["s1"]);
   });
 });
 

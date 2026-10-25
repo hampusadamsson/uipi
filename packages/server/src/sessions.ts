@@ -88,8 +88,9 @@ export class SessionService {
         this.detach(msg.sessionId, _sub, reply);
         break;
       }
-      case "proto.setRole": {
-        // a session command that happens to live in the proto.* namespace
+      case "proto.setRole":
+      case "proto.roleNames": {
+        // session commands that happen to live in the proto.* namespace
         await this.handleSessionCmd(msg, reply);
         break;
       }
@@ -247,6 +248,17 @@ export class SessionService {
         s.session
           .compact()
           .catch((e: unknown) => reply({ type: "proto.error", message: String(e) }));
+        break;
+      case "proto.roleNames":
+        // The roles extension owns the role list: reuse its own `/role` argument
+        // completions instead of re-reading roles.json here. Fails soft — an
+        // absent extension, a throwing completion or a missing accessor all mean
+        // "no names", and the picker still offers `(none)` + reload.
+        reply({
+          type: "proto.roleNames",
+          sessionId: s.id,
+          names: await discoverRoleNames(s.session),
+        });
         break;
       case "pi.cancelQueued": {
         const list =
@@ -720,6 +732,59 @@ function isExtensionCommand(session: AgentSession, name: string): boolean {
   } catch {
     // a broken extension runner must not break ordinary prompting
     return false;
+  }
+}
+
+/**
+ * Reserved argument words the roles extension defines on its own `/role`
+ * command (`~/.pi/agent/extensions/roles/index.ts`, `RESERVED`): `none` also as
+ * `off`, plus `reload` and `keys`. They are command affordances, never roles, so
+ * the picker must not list them as role names — `(none)` and reload are its own.
+ */
+const RESERVED_ROLE_ARGS: ReadonlySet<string> = new Set(["none", "off", "reload", "keys"]);
+
+/** The slice of a registered extension command this discovery touches. */
+type CompletionProvider = {
+  name?: string;
+  invocationName?: string;
+  getArgumentCompletions?: (
+    argumentPrefix: string,
+  ) => { value?: unknown }[] | null | Promise<{ value?: unknown }[] | null>;
+};
+
+/**
+ * Role names as pi's own `/role` command would complete them.
+ *
+ * The single source of truth is the roles extension: its `getArgumentCompletions`
+ * returns `{ value, label, description }` for every configured role plus the
+ * reserved words (`none`, `reload`, `keys`). uipi only asks for them and strips
+ * the reserved ones, so the wire list is role names and nothing else.
+ *
+ * Display-only: no `role` command (extension not installed), a throwing or
+ * non-completing command, or a failing completion all yield `[]`. Hidden roles
+ * cannot be told apart here — completions don't distinguish them — so they are
+ * included, which is accepted.
+ */
+export async function discoverRoleNames(session: AgentSession): Promise<string[]> {
+  try {
+    const runner = session.extensionRunner as unknown as CommandListProvider | undefined;
+    const commands = (runner?.getRegisteredCommands?.() ?? []) as CompletionProvider[];
+    const roleCommand = commands.find(
+      (command) => (command.invocationName ?? command.name) === "role",
+    );
+    if (typeof roleCommand?.getArgumentCompletions !== "function") return [];
+    const items = await roleCommand.getArgumentCompletions("");
+    const names: string[] = [];
+    for (const item of items ?? []) {
+      const name = item?.value;
+      if (typeof name !== "string" || name.length === 0) continue;
+      if (RESERVED_ROLE_ARGS.has(name)) continue;
+      if (!names.includes(name)) names.push(name);
+    }
+    return names;
+  } catch {
+    // display-only: a broken extension must never break the picker request
+    return [];
   }
 }
 

@@ -26,6 +26,46 @@ export function sessionRoleText(s: SessionSummary): string | null {
 }
 
 /**
+ * One row of the role picker: a role name, or one of the two affordances the
+ * picker owns (`(none)` to clear, reload to re-read roles.json).
+ *
+ * `current` marks the row that matches the session's active role so the picker
+ * can show where you are; it is display-only (no drift indicator, and no lock:
+ * model/thinking overrides leave it alone).
+ */
+export type RolePickerItem =
+  | { kind: "role"; label: string; role: string; current: boolean }
+  | { kind: "none"; label: string; role: null; current: boolean }
+  | { kind: "reload"; label: string; role: string | null; current: false };
+
+/**
+ * Picker rows for a freshly fetched name list plus the active role.
+ *
+ * Names come from `/role`'s own argument completions, so they already include
+ * hidden roles (completions can't tell them apart). The server filtered the
+ * extension's reserved words, so anything here is a real role name. Duplicates
+ * are dropped defensively; order is the extension's (roles.json order), which is
+ * the order the TUI shows them in.
+ */
+export function rolePickerItems(names: string[], current: string | null): RolePickerItem[] {
+  const items: RolePickerItem[] = [];
+  const seen: string[] = [];
+  for (const name of names) {
+    if (typeof name !== "string" || name.length === 0 || seen.includes(name)) continue;
+    seen.push(name);
+    items.push({ kind: "role", label: name, role: name, current: name === current });
+  }
+  items.push({ kind: "none", label: "(none)", role: null, current: current === null });
+  items.push({
+    kind: "reload",
+    label: `reload roles.json, keep “${current ?? "none"}”`,
+    role: current,
+    current: false,
+  });
+  return items;
+}
+
+/**
  * Svelte adapter over the UI-agnostic {@link UipiClient}.
  *
  * All protocol, reducer and command logic lives in `@uipi/client`; this class
@@ -168,6 +208,15 @@ export class UiState {
 
   cmd(m: C2S): void {
     this.client.cmd(m);
+  }
+
+  /**
+   * Role names for the picker, read fresh from the live session's `/role`
+   * argument completions. Deliberately not mirrored into reactive state: names
+   * can change under a hand-edited roles.json, so every picker open asks again.
+   */
+  roleNames(sessionId: string): Promise<string[]> {
+    return this.client.roleNames(sessionId);
   }
 
   sendPrompt(sessionId: string, text: string): void {
