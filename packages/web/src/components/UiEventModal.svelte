@@ -8,15 +8,15 @@
   const current = $derived(ui.uiEvents.find((e) => e.kind !== "notification"));
   let open = $derived(current !== undefined);
 
-  // non-blocking notifications → toasts, popped from the queue
+  // non-blocking notifications → toasts, popped from the queue. Drain goes
+  // through the adapter: it removes by event id, so a re-synced copy of the
+  // same event can never be toasted a second time.
   $effect(() => {
-    const notif = ui.uiEvents.find((e) => e.kind === "notification");
-    if (!notif) return;
-    const n = notif as { message: string; level: string };
-    if (n.level === "error") toast.error(n.message);
-    else if (n.level === "warn") toast.warning(n.message);
-    else toast.info(n.message);
-    ui.consumeUiEvent(notif);
+    ui.drainNotification((n) => {
+      if (n.level === "error") toast.error(n.message);
+      else if (n.level === "warn") toast.warning(n.message);
+      else toast.info(n.message);
+    });
   });
 
   function cancel() {

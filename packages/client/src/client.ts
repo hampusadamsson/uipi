@@ -265,9 +265,18 @@ export class UipiClient {
     this.emit();
   }
 
-  /** Remove a UI event once a frontend has presented it. */
+  /**
+   * Remove a UI event once a frontend has presented it.
+   *
+   * Matched by `id`, never by object identity: a frontend hands back the object
+   * it read from its own (usually reactive, proxy-wrapped) mirror, which is not
+   * the object this store holds. Identity matching silently did nothing and the
+   * event re-fired on every following change.
+   */
   consumeUiEvent(event: UiEvent): void {
-    this.uiEvents = this.uiEvents.filter((e) => e !== event);
+    const before = this.uiEvents.length;
+    this.uiEvents = this.uiEvents.filter((e) => e.id !== event.id);
+    if (this.uiEvents.length === before) return;
     this.emit();
   }
 

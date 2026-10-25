@@ -7,7 +7,7 @@ import { UipiClient } from "../src/client.js";
 import { Conn, type WebSocketLike, type SocketFactory } from "../src/conn.js";
 import { deriveTranscript } from "../src/transcript.js";
 import { pathFor, hash8 } from "../src/route.js";
-import type { S2C } from "@uipi/protocol";
+import type { S2C, UiEvent } from "@uipi/protocol";
 
 /** A fake server that answers commands like the real one does. */
 class FakeServer {
@@ -329,6 +329,69 @@ describe("UipiClient headless", () => {
         index: 2,
       },
     ]);
+    expect(client.getUiEvents()).toHaveLength(0);
+  });
+
+  it("drains a UI event by id, not by object identity", async () => {
+    await client.newSession("/proj");
+    server.sockets[0].deliver({
+      type: "ui.event",
+      event: {
+        id: "ev1",
+        kind: "notification",
+        sessionId: "sess-1",
+        level: "info",
+        message: "Role: architect",
+      },
+    } as S2C);
+    await flush();
+
+    // what a reactive frontend hands back: a copy of the event, not the object
+    // this store holds (a Svelte $state array wraps every element in a proxy)
+    const copy = JSON.parse(JSON.stringify(client.getUiEvents()[0])) as UiEvent;
+    expect(copy).not.toBe(client.getUiEvents()[0]);
+
+    client.consumeUiEvent(copy);
+
+    expect(client.getUiEvents()).toHaveLength(0);
+  });
+
+  it("consuming an already-drained event is a no-op that does not notify", async () => {
+    await client.newSession("/proj");
+    const ev: UiEvent = {
+      id: "ev1",
+      kind: "notification",
+      sessionId: "sess-1",
+      level: "info",
+      message: "hi",
+    };
+    server.sockets[0].deliver({ type: "ui.event", event: ev } as S2C);
+    await flush();
+    client.consumeUiEvent(ev);
+
+    let changes = 0;
+    client.onChange(() => changes++);
+    client.consumeUiEvent(ev);
+    expect(changes).toBe(0);
+  });
+
+  it("a notification survives a re-sync as exactly one queue entry", async () => {
+    await client.newSession("/proj");
+    const ev: UiEvent = {
+      id: "ev1",
+      kind: "notification",
+      sessionId: "sess-1",
+      level: "info",
+      message: "Role: architect",
+    };
+    server.sockets[0].deliver({ type: "ui.event", event: ev } as S2C);
+    await flush();
+    // unrelated traffic must not duplicate or resurrect the entry
+    server.sockets[0].deliver({ type: "proto.sessions", sessions: [] } as S2C);
+    await flush();
+
+    expect(client.getUiEvents()).toHaveLength(1);
+    client.consumeUiEvent(client.getUiEvents()[0]);
     expect(client.getUiEvents()).toHaveLength(0);
   });
 

@@ -94,7 +94,18 @@ export interface ModelInfo {
   contextWindow: number;
 }
 
-export type UiDialogRequest = {
+/**
+ * Every UI event carries a server-assigned `id`. Frontends drop an event once
+ * they have presented it, and object identity is useless for that: the wire
+ * hands out a fresh object per delivery and reactive stores wrap it in proxies,
+ * so removal must key on this stable id instead.
+ */
+type UiEventBase = {
+  /** stable per-event key, assigned by the server when the event is created */
+  id: string;
+};
+
+export type UiDialogRequest = UiEventBase & {
   kind: "dialog";
   dialogId: string;
   sessionId: string;
@@ -103,7 +114,7 @@ export type UiDialogRequest = {
   payload?: unknown;
 };
 
-export type UiSelectRequest = {
+export type UiSelectRequest = UiEventBase & {
   kind: "select";
   selectId: string;
   sessionId: string;
@@ -111,11 +122,21 @@ export type UiSelectRequest = {
   options: { label: string; value?: unknown }[];
 };
 
-export type UiNotification = {
+/**
+ * Which uipi-initiated command caused a notification. The server tags the
+ * notifications it triggers itself, so a frontend that already mirrors that
+ * state can suppress the confirmation without parsing its text (the extension
+ * owns the wording, and `ctx.ui.notify` has no tag parameter of its own).
+ */
+export type UiNotificationOrigin = "setRole";
+
+export type UiNotification = UiEventBase & {
   kind: "notification";
   sessionId: string;
   level: "info" | "warn" | "error";
   message: string;
+  /** absent for notifications an extension raised on its own initiative */
+  origin?: UiNotificationOrigin;
 };
 
 export type UiEvent = UiDialogRequest | UiSelectRequest | UiNotification;

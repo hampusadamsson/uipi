@@ -11,9 +11,40 @@ import {
   type WebSocketLike,
   deriveTranscript,
 } from "@uipi/client";
-import type { C2S, ModelInfo, SessionSummary, UiEvent } from "@uipi/protocol";
+import type { C2S, ModelInfo, SessionSummary, UiEvent, UiNotification } from "@uipi/protocol";
 
 export type { RunState, TranscriptEntry, AttachedSession };
+
+/**
+ * True when the adapter's mirror already reflects `events`.
+ *
+ * Compared by length *and* ids: a bare length check misses a same-length change
+ * (one notification consumed while another arrived in the same sync), and the
+ * stale copy then re-presents an event the client already drained.
+ */
+function sameUiEvents(a: readonly UiEvent[], b: readonly UiEvent[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((e, i) => e === b[i] || e.id === b[i].id);
+}
+
+/**
+ * Notifications the web UI drops instead of toasting.
+ *
+ * Suppression keys off the server-assigned `origin` tag, not the message text:
+ * the extension owns the wording (and appends warning suffixes), and the server
+ * is the only place that knows a notification was caused by a uipi command. A
+ * status slot can't stand in for it — statuses mirror *state* (`◆ role`) and are
+ * broadcast on their own schedule, so they say nothing about which notification
+ * frames belong to the confirmation. The header chip already shows the role, so
+ * `setRole` confirmations are pure noise here; anything an extension raises on
+ * its own initiative (refusals, `/role keys`, config diagnostics) keeps toasting.
+ */
+export function isQuietNotification(e: UiEvent): boolean {
+  // Errors and warnings always survive: they carry facts the chip cannot show
+  // ("agent busy", "no API key for the role's model"). Only the clean
+  // confirmation of a switch we initiated is noise.
+  return e.kind === "notification" && e.origin === "setRole" && e.level === "info";
+}
 
 /**
  * Sidebar badge text for a session: the role name, or null when roleless.
@@ -228,6 +259,26 @@ export class UiState {
     this.client.consumeUiEvent(event);
   }
 
+  /**
+   * Present and drain the oldest queued notification.
+   *
+   * Returns false when the queue holds none. The caller supplies `present` so the
+   * adapter stays UI-agnostic (the web app toasts, a TUI would paint a line), and
+   * lives here rather than in the component so the drain contract — exactly once, and
+   * quiet ones silently — is testable without mounting Svelte.
+   */
+  drainNotification(present: (e: UiNotification) => void): boolean {
+    const notif = this.uiEvents.find((e) => e.kind === "notification");
+    if (!notif || notif.kind !== "notification") return false;
+    if (isQuietNotification(notif)) {
+      this.consumeUiEvent(notif);
+      return true;
+    }
+    present(notif);
+    this.consumeUiEvent(notif);
+    return true;
+  }
+
   respondUi(
     req:
       | { kind: "select"; sessionId: string; selectId: string }
@@ -281,9 +332,9 @@ export class UiState {
     this.models = c.models;
     this.activeId = c.activeId;
     const events = c.getUiEvents();
-    // same contents → keep the existing array so consumers' $effects don't
+    // keep the existing array when nothing changed so consumers' $effects don't
     // re-run on every unrelated sync (notifications are drained by id)
-    if (events.length !== this.uiEvents.length) this.uiEvents = [...events];
+    if (!sameUiEvents(events, this.uiEvents)) this.uiEvents = [...events];
     this.error = c.error;
 
     for (const s of c.attachedSessionsList) this.attached.set(s.sessionId, s);

@@ -180,8 +180,19 @@ export class SessionService {
         try {
           // The pi roles extension owns switching; translate the request into its
           // own slash command and let the extension be the authority on role names.
-          if (msg.reload) await s.session.prompt("/role reload");
-          await s.session.prompt(msg.role === null ? "/role none" : `/role ${msg.role}`);
+          //
+          // The extension confirms with a plain `ctx.ui.notify("Role: …")`, which
+          // would be a toast on every switch in the web UI even though the header
+          // chip already shows the role. pi's notify has no tag parameter, so the
+          // server brackets the prompt with an origin tag the web layer can key
+          // off — no text matching, and the extension stays untouched.
+          const prevOrigin = s.uiHost.setNotificationOrigin("setRole");
+          try {
+            if (msg.reload) await s.session.prompt("/role reload");
+            await s.session.prompt(msg.role === null ? "/role none" : `/role ${msg.role}`);
+          } finally {
+            s.uiHost.setNotificationOrigin(prevOrigin);
+          }
           // Echo the state the session *has*, not the one that was requested: the
           // extension may have refused (unknown role, or busy). Re-read the
           // history after prompt() so a refusal can't show a role that never applied.

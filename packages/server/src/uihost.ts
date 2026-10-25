@@ -1,6 +1,16 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { S2C, UiEvent } from "@uipi/protocol";
+import type { S2C, UiEvent, UiNotification, UiNotificationOrigin } from "@uipi/protocol";
 import type { Send } from "./types.js";
+
+/**
+ * Window in which an identical notification (same level and message) is
+ * collapsed into the previous one. Extensions routinely notify twice for one
+ * user action (config diagnostics + the resulting state, a retry loop, a
+ * status repaint path that also notifies); the frontend has no way to tell
+ * those apart from a genuinely repeated message, so the collapse happens once
+ * here, at the single broadcast point, instead of in every frontend.
+ */
+export const NOTIFY_DEDUPE_MS = 2000;
 
 /**
  * A no-op terminal theme. Web mode has no ANSI color, so every style helper
@@ -35,6 +45,14 @@ export class UiHost {
   private nextId = 1;
   private send: Send = () => {};
   /**
+   * Origin tag applied to notifications raised while it is set. The server sets
+   * it around a command it triggers itself (e.g. `/role`), so the web UI can
+   * suppress the confirmation by tag instead of by matching message text.
+   */
+  private origin: UiNotificationOrigin | undefined;
+  /** last notification frame per message key, for {@link NOTIFY_DEDUPE_MS} */
+  private lastNotification = new Map<string, number>();
+  /**
    * Status slots set by extensions via `ctx.ui.setStatus(key, text)` — the same
    * footer slots the TUI renders. Mirrored to clients as `proto.statuses`.
    */
@@ -48,6 +66,19 @@ export class UiHost {
   /** wire to the WS subscriber with implicit-attach semantics */
   attachSend(send: Send): void {
     this.send = send;
+  }
+
+  /**
+   * Tag notifications raised from now on with `origin`; returns the previous tag
+   * so the caller can restore it. Used to bracket a command the server triggers
+   * itself, so the resulting confirmation is identifiable as uipi-initiated.
+   */
+  setNotificationOrigin(
+    origin: UiNotificationOrigin | undefined,
+  ): UiNotificationOrigin | undefined {
+    const prev = this.origin;
+    this.origin = origin;
+    return prev;
   }
 
   /** incoming ui.dialogResponse / ui.selectResponse from a client */
@@ -64,11 +95,18 @@ export class UiHost {
     confirm: (title, message, opts) => this.request("confirm", { title, message, opts }),
     input: (title, placeholder, opts) => this.request("input", { title, placeholder, opts }),
     notify: (message, type = "info") => {
-      const ev: UiEvent = {
+      const key = `${type}\u0000${message}`;
+      const now = Date.now();
+      const last = this.lastNotification.get(key);
+      if (last !== undefined && now - last < NOTIFY_DEDUPE_MS) return;
+      this.lastNotification.set(key, now);
+      const ev: UiNotification = {
+        id: this.nextEventId(),
         kind: "notification",
         sessionId: this.sessionId(),
         level: type === "warning" ? "warn" : type === "error" ? "error" : "info",
         message,
+        ...(this.origin ? { origin: this.origin } : {}),
       };
       this.send({ type: "ui.event", event: ev } as unknown as S2C);
     },
@@ -129,6 +167,11 @@ export class UiHost {
     this.send({ type: "proto.statuses", sessionId: this.sessionId(), statuses });
   }
 
+  /** Stable key for a UI event, unique within this host's lifetime. */
+  private nextEventId(): string {
+    return `ev${this.nextId++}`;
+  }
+
   /** Protocol surface the client sees (mirrors @uipi/protocol UiEvent kinds) */
   private request<T>(
     kind: "select" | "confirm" | "input",
@@ -148,6 +191,7 @@ export class UiHost {
       const ev: UiEvent =
         kind === "select"
           ? {
+              id: this.nextEventId(),
               kind: "select",
               selectId: id,
               sessionId: this.sessionId(),
@@ -157,6 +201,7 @@ export class UiHost {
               })),
             }
           : {
+              id: this.nextEventId(),
               kind: "dialog",
               dialogId: id,
               sessionId: this.sessionId(),
