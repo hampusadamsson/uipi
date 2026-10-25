@@ -14,6 +14,17 @@
     await ui.openSession(file);
     onAfterSelect?.();
   }
+
+  function fmtDate(mtime: number): string {
+    const d = new Date(mtime);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    const days = (now.getTime() - mtime) / 86400000;
+    if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
 </script>
 
 <aside class="w-72 max-w-[85vw] h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground">
@@ -55,6 +66,7 @@
           {s.displayName || s.sessionFile.split("/").pop()}
         </div>
         <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
+          <span class="shrink-0">{fmtDate(s.mtime)}</span>
           <span class="truncate">{s.cwd}</span>
           {#if ui.contextTokens.get(s.sessionId)}
             <span class="shrink-0">· {Math.round((ui.contextTokens.get(s.sessionId) ?? 0) / 1000)}k ctx</span>
