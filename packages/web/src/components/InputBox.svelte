@@ -20,7 +20,7 @@
 
   const attach = $derived(
     ui.attached.get(sessionId) as
-      | { isStreaming?: boolean; steering?: unknown[]; followUp?: unknown[] }
+      | { isStreaming?: boolean; cwd?: string; steering?: unknown[]; followUp?: unknown[] }
       | undefined
   );
   const runState = $derived(ui.stateOf(sessionId));
@@ -75,6 +75,15 @@
   function send() {
     const v = text.trim();
     if (!v) return;
+    // slash commands are local actions, never prompt text
+    if (v === "/new") {
+      const cwd = attach?.cwd;
+      text = "";
+      if (taEl) taEl.style.height = "auto";
+      if (cwd) void ui.newSession(cwd);
+      refocus();
+      return;
+    }
     // optimistic run state; pi events will settle to idle when done
     if (v === "/compact") {
       ui.runState.set(sessionId, "thinking");
