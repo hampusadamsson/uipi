@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { C2S, S2C, SessionSummary } from "@uipi/protocol";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   createAgentSessionRuntime,
+  getAgentDir,
   SessionManager,
   type AgentSession,
   type AgentSessionRuntime,
@@ -17,6 +19,8 @@ export type CreateRuntimeFn = typeof createAgentSessionRuntime;
 interface LiveSession {
   id: string;
   cwd: string;
+  /** agent dir pi resolved for this session (see resolveAgentDir) */
+  agentDir: string;
   sessionFile: string | undefined;
   runtime: AgentSessionRuntime;
   session: AgentSession;
@@ -175,8 +179,10 @@ export class SessionService {
           // own slash command and let the extension be the authority on role names.
           if (msg.reload) await s.session.prompt("/role reload");
           await s.session.prompt(msg.role === null ? "/role none" : `/role ${msg.role}`);
-          // echo the new state to ALL subscribers of this session
-          const role = msg.role;
+          // Echo the state the session *has*, not the one that was requested: the
+          // extension may have refused (unknown role, or busy). Re-read the
+          // history after prompt() so a refusal can't show a role that never applied.
+          const role = mirrorActiveRole(s.session, s.agentDir);
           for (const s2 of s.subscribers.keys()) {
             try {
               s2.send({
@@ -214,8 +220,7 @@ export class SessionService {
               s2.send({
                 type: "proto.sessionState",
                 sessionId: s.id,
-                // role/commands are placeholders; later tasks fill them in
-                role: null,
+                role: mirrorActiveRole(s.session, s.agentDir),
                 model: modelRef,
                 thinkingLevel: String(s.session.thinkingLevel ?? ""),
                 tools: [...s.session.getActiveToolNames()],
@@ -350,10 +355,7 @@ export class SessionService {
     sessionFile: string | undefined,
     agentDir: string | undefined,
   ): Promise<LiveSession> {
-    const effectiveAgentDir =
-      agentDir && agentDir.trim()
-        ? agentDir.trim().replace(/^~(?=\/)/, `${process.env.HOME ?? "~"}`)
-        : undefined;
+    const effectiveAgentDir = agentDir && agentDir.trim() ? resolveAgentDir(agentDir) : undefined;
     if (effectiveAgentDir && !existsSync(effectiveAgentDir)) {
       throw new Error(`agent dir does not exist: ${effectiveAgentDir}`);
     }
@@ -390,6 +392,7 @@ export class SessionService {
     const live: LiveSession = {
       id,
       cwd,
+      agentDir: effectiveAgentDir ?? getAgentDir(),
       sessionFile: session.sessionFile,
       runtime: runtime as unknown as AgentSessionRuntime,
       session,
@@ -542,10 +545,10 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     model: sessionModelRef(live.session),
     thinkingLevel: String(live.session.thinkingLevel ?? ""),
     tools: [...live.session.getActiveToolNames()],
-    // placeholders: filled in by the role / command-discovery / status tasks
-    role: null,
+    role: mirrorActiveRole(live.session, live.agentDir),
+    // placeholder: filled in by the command-discovery task
     commands: [],
-    statuses: {},
+    statuses: live.uiHost.statuses(),
     cwd: live.cwd,
     isStreaming: live.session.isIdle === false,
     steering: [...live.session.getSteeringMessages()],
@@ -636,6 +639,65 @@ function isExtensionCommand(session: AgentSession, name: string): boolean {
     // a broken extension runner must not break ordinary prompting
     return false;
   }
+}
+
+/** Custom entry type the roles extension appends on every switch. */
+const ROLE_ENTRY_TYPE = "role-switch";
+
+/**
+ * The last `role-switch` custom entry on the current branch, or `null`.
+ *
+ * `found` matters: an entry with `{ role: null }` (a `/role none`) is a real
+ * answer — it must not fall back to the config default. Same replay rule as the
+ * roles extension's own `restoreRoleFromSession`: last entry wins.
+ */
+function roleFromEntries(session: AgentSession): { found: boolean; role: string | null } {
+  try {
+    let found = false;
+    let role: string | null = null;
+    for (const entry of session.sessionManager.getBranch()) {
+      if (entry.type !== "custom" || entry.customType !== ROLE_ENTRY_TYPE) continue;
+      const data = entry.data as { role?: unknown } | undefined;
+      role = typeof data?.role === "string" ? data.role : null;
+      found = true;
+    }
+    return { found, role };
+  } catch {
+    // display-only: never let a broken/absent session manager break a payload
+    return { found: false, role: null };
+  }
+}
+
+/**
+ * Unpatched-install fallback: with no `role-switch` entry in history the only
+ * truth is `roles.json → active`, the fresh-session default the roles extension
+ * would have applied. Read defensively — a missing file, bad JSON or a bad
+ * `active` value all mean "roleless" (blank beats guessed).
+ */
+function activeFromConfig(agentDir: string): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(agentDir, "roles.json"), "utf8")) as {
+      active?: unknown;
+    };
+    const active = parsed?.active;
+    return typeof active === "string" && active.length > 0 ? active : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Active role of a live session, display-only: history first, config default
+ * second. uipi never interprets the name — it just echoes pi's answer.
+ */
+export function mirrorActiveRole(session: AgentSession, agentDir: string): string | null {
+  const fromHistory = roleFromEntries(session);
+  return fromHistory.found ? fromHistory.role : activeFromConfig(agentDir);
+}
+
+/** agentDir as materialize() resolves it: trimmed, `~` expanded, else pi's own default. */
+function resolveAgentDir(agentDir: string): string {
+  return agentDir.trim().replace(/^~(?=\/)/, `${process.env.HOME ?? "~"}`);
 }
 
 function sessionModelRef(session: AgentSession) {
