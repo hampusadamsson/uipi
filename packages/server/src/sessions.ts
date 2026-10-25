@@ -138,6 +138,12 @@ export class SessionService {
             }
             break;
           }
+          // TUI-only builtin: it would never run here, so refuse it instead of
+          // letting the model answer the literal text as if it had.
+          if (isWebUnavailableBuiltin(name)) {
+            reply({ type: "proto.error", message: `${name} is not available in the web UI` });
+            break;
+          }
         }
         // Never reject a prompt just because the agent is busy: queue it instead.
         // A plain prompt submitted mid-run is a follow-up (wait for the current
@@ -552,6 +558,63 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
 function slashCommandName(text: string): string {
   const spaceIndex = text.indexOf(" ");
   return spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+}
+
+/**
+ * pi builtin slash commands that only the TUI implements.
+ *
+ * Source: `BUILTIN_SLASH_COMMANDS` in
+ * @earendil-works/pi-coding-agent/dist/core/slash-commands.js (pi 1.4.0, 24
+ * names). That module is *not* reachable from the package entry point:
+ * dist/index.d.ts exports nothing from core/slash-commands, and package.json
+ * "exports" declares only "." and "./rpc-entry", so importing the deep path
+ * fails with ERR_PACKAGE_PATH_NOT_EXPORTED. Hence this explicit copy — re-diff
+ * it against the file above when bumping pi.
+ */
+const PI_BUILTIN_SLASH_COMMANDS: ReadonlySet<string> = new Set([
+  "settings",
+  "model",
+  "tree",
+  "thinking",
+  "scoped-models",
+  "export",
+  "import",
+  "share",
+  "bug",
+  "copy",
+  "name",
+  "session",
+  "changelog",
+  "hotkeys",
+  "fork",
+  "clone",
+  "trust",
+  "login",
+  "logout",
+  "new",
+  "compact",
+  "resume",
+  "reload",
+  "quit",
+]);
+
+/**
+ * Commands the web UI *does* implement, so they must never be refused.
+ * `/new` is handled client-side (proto.newSession) and never reaches the
+ * server; `/compact` and `/role` are dispatched above.
+ */
+const WEB_IMPLEMENTED_COMMANDS: ReadonlySet<string> = new Set(["new", "compact", "role"]);
+
+/**
+ * Whether `name` is a pi builtin with no web implementation.
+ *
+ * pi's builtins are TUI-only: their handlers live in InteractiveMode, not in
+ * AgentSession.prompt(). `prompt()` finds no extension command for `/model opus`
+ * and forwards the literal text to the model, which then confidently answers
+ * about a command that never ran. Refuse these instead of prompting.
+ */
+function isWebUnavailableBuiltin(name: string): boolean {
+  return PI_BUILTIN_SLASH_COMMANDS.has(name) && !WEB_IMPLEMENTED_COMMANDS.has(name);
 }
 
 /** The subset of ExtensionRunner we need, so fakes/tests can omit it. */
