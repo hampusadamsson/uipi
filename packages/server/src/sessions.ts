@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import type { C2S, S2C, SessionSummary } from "@uipi/protocol";
 import {
   createAgentSessionFromServices,
@@ -306,26 +308,38 @@ export class SessionService {
   }
 
   private async listAllSessions(): Promise<SessionSummary[]> {
-    const set = new Map<string, SessionSummary>();
+    const infos = new Map<string, RawSessionInfo>();
     for (const info of await SessionManager.list(process.cwd())) {
-      set.set(info.path, summary(info, this));
+      infos.set(info.path, info);
     }
     const extraCwds = new Set(this.byOfLive());
     for (const cwd of extraCwds) {
       if (cwd === process.cwd()) continue;
       try {
         for (const info of await SessionManager.list(cwd)) {
-          set.set(info.path, summary(info, this));
+          infos.set(info.path, info);
         }
       } catch {
         /* skip inaccessible */
       }
     }
+    const liveByFile = new Map<string, LiveSession>();
+    for (const live of this.live.values()) {
+      if (live.sessionFile) liveByFile.set(live.sessionFile, live);
+    }
+    // Roles are backfilled off the request path: every file is read at most once
+    // per (path, mtimeMs, size), concurrently, and idle sessions are the common case.
+    const entries = [...infos.entries()];
+    const roles = await Promise.all(
+      entries.map(([path]) => summaryRole(path, liveByFile.get(path))),
+    );
+    pruneSessionRoleCache(entries.map(([path]) => path));
+    const out = entries.map(([, info], i) => summary(info, this, roles[i] ?? null));
     // brand-new live sessions have a session file path but no file on disk yet
     for (const live of this.live.values()) {
       const file = live.sessionFile;
-      if (!file || set.has(file)) continue;
-      set.set(file, {
+      if (!file || infos.has(file)) continue;
+      out.push({
         sessionId: live.id,
         sessionFile: file,
         displayName: "new session",
@@ -333,9 +347,10 @@ export class SessionService {
         mtime: live.createdAt,
         live: true,
         cwd: live.cwd,
+        role: mirrorActiveRole(live.session, live.agentDir),
       });
     }
-    return [...set.values()].sort((a, b) => b.mtime - a.mtime);
+    return out.sort((a, b) => b.mtime - a.mtime);
   }
 
   private byOfLive(): string[] {
@@ -513,6 +528,8 @@ export class SessionService {
   }
 }
 
+type RawSessionInfo = Awaited<ReturnType<typeof SessionManager.list>>[number];
+
 function summary(
   info: {
     path: string;
@@ -523,6 +540,7 @@ function summary(
     cwd: string;
   },
   service: SessionService,
+  role: string | null,
 ): SessionSummary {
   const liveId = service["byFile"].get(info.path);
   return {
@@ -533,6 +551,7 @@ function summary(
     mtime: info.modified.getTime(),
     live: Boolean(liveId && service["live"].has(liveId)),
     cwd: info.cwd || process.cwd(),
+    role,
   };
 }
 
@@ -756,6 +775,97 @@ function activeFromConfig(agentDir: string): string | null {
 export function mirrorActiveRole(session: AgentSession, agentDir: string): string | null {
   const fromHistory = roleFromEntries(session);
   return fromHistory.found ? fromHistory.role : activeFromConfig(agentDir);
+}
+
+/**
+ * The last `role-switch` role in a session JSONL file, or `null`.
+ *
+ * Streams the file line by line (`readline` over a `createReadStream`): a session
+ * can be several MB of message lines, but only a handful of lines in the whole
+ * corpus are role switches. Malformed lines are skipped, and any read error means
+ * "roleless" — the sidebar badge is display-only and must never throw a listing.
+ * No config fallback: an entry with `{ role: null }` is a real answer.
+ */
+export async function roleFromSessionFile(file: string): Promise<string | null> {
+  let rl: ReturnType<typeof createInterface> | undefined;
+  try {
+    rl = createInterface({
+      input: createReadStream(file, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    });
+    let found = false;
+    let role: string | null = null;
+    for await (const line of rl) {
+      // Cheap prefilter: JSON.parse on every message line of a 7 MB file is the
+      // one cost worth avoiding, and a role entry always carries its own marker.
+      if (!line.includes(ROLE_ENTRY_TYPE)) continue;
+      let entry: { type?: unknown; customType?: unknown; data?: { role?: unknown } };
+      try {
+        entry = JSON.parse(line) as typeof entry;
+      } catch {
+        continue; // truncated/hand-edited line: skip it, keep scanning
+      }
+      if (entry?.type !== "custom" || entry.customType !== ROLE_ENTRY_TYPE) continue;
+      role = typeof entry.data?.role === "string" ? entry.data.role : null;
+      found = true;
+    }
+    return found ? role : null;
+  } catch {
+    return null;
+  } finally {
+    rl?.close();
+  }
+}
+
+/**
+ * One cached file answer. Keyed by the stat triple: same path *and* same mtimeMs
+ * *and* same size means the bytes cannot have changed, so the replay is reused and
+ * a repeat `proto.sessions` broadcast opens nothing. `exists` is kept so a
+ * brand-new live session (path known, file not written yet) can be told apart from
+ * a roleless session and fall back to the live mirror instead.
+ */
+type SessionRoleEntry = { mtimeMs: number; size: number; exists: boolean; role: string | null };
+const sessionRoleCache = new Map<string, SessionRoleEntry>();
+
+export async function cachedSessionRole(
+  file: string,
+): Promise<{ exists: boolean; role: string | null }> {
+  let mtimeMs: number;
+  let size: number;
+  try {
+    const st = await stat(file);
+    mtimeMs = st.mtimeMs;
+    size = st.size;
+  } catch {
+    sessionRoleCache.delete(file);
+    return { exists: false, role: null };
+  }
+  const hit = sessionRoleCache.get(file);
+  if (hit && hit.exists && hit.mtimeMs === mtimeMs && hit.size === size) {
+    return { exists: true, role: hit.role };
+  }
+  const role = await roleFromSessionFile(file);
+  sessionRoleCache.set(file, { mtimeMs, size, exists: true, role });
+  return { exists: true, role };
+}
+
+/** Bound the cache: forget every file that was not in the listing we just served. */
+export function pruneSessionRoleCache(seen: Iterable<string>): void {
+  const keep = new Set(seen);
+  for (const path of sessionRoleCache.keys()) {
+    if (!keep.has(path)) sessionRoleCache.delete(path);
+  }
+}
+
+/**
+ * Sidebar role for one summary: the JSONL when the file is on disk (the same
+ * replay rule as `mirrorActiveRole`, minus the config default), otherwise the live
+ * session's own mirror — a brand-new session has no file until its first message.
+ */
+async function summaryRole(path: string, live: LiveSession | undefined): Promise<string | null> {
+  const read = await cachedSessionRole(path);
+  if (read.exists) return read.role;
+  return live ? mirrorActiveRole(live.session, live.agentDir) : null;
 }
 
 /** agentDir as materialize() resolves it: trimmed, `~` expanded, else pi's own default. */

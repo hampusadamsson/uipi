@@ -71,6 +71,8 @@ export interface SessionSummary {
   /** undefined if not currently materialized in the server */
   live: boolean;
   cwd: string;
+  /** active role, or null when roleless */
+  role: string | null;
 }
 
 export interface RecentDir {
