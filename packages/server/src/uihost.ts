@@ -34,6 +34,11 @@ export class UiHost {
   private pending = new Map<string, (v: unknown) => void>();
   private nextId = 1;
   private send: Send = () => {};
+  /**
+   * Status slots set by extensions via `ctx.ui.setStatus(key, text)` — the same
+   * footer slots the TUI renders. Mirrored to clients as `proto.statuses`.
+   */
+  private statuses = new Map<string, string>();
 
   constructor(
     private sessionId: () => string,
@@ -69,7 +74,18 @@ export class UiHost {
     },
     // terminal-only bits: no-ops in web mode
     onTerminalInput: () => () => {},
-    setStatus: () => {},
+    setStatus: (key, text) => {
+      const prev = this.statuses.get(key);
+      // undefined clears the slot; an unchanged value is not worth a broadcast
+      if (text === undefined) {
+        if (prev === undefined) return;
+        this.statuses.delete(key);
+      } else {
+        if (prev === text) return;
+        this.statuses.set(key, text);
+      }
+      this.emitStatuses();
+    },
     setWorkingMessage: () => {},
     setWorkingVisible: () => {},
     setWorkingIndicator: () => {},
@@ -98,6 +114,13 @@ export class UiHost {
     getToolsExpanded: () => false,
     setToolsExpanded: () => {},
   } as ExtensionUIContext;
+
+  /** Broadcast every status slot after a change — the map is replaced wholesale */
+  private emitStatuses(): void {
+    const statuses: Record<string, string> = {};
+    for (const [key, text] of this.statuses) statuses[key] = text;
+    this.send({ type: "proto.statuses", sessionId: this.sessionId(), statuses });
+  }
 
   /** Protocol surface the client sees (mirrors @uipi/protocol UiEvent kinds) */
   private request<T>(
