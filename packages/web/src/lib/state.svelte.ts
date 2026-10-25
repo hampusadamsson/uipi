@@ -65,14 +65,23 @@ export class UiState {
   }
 
   // ------------------------------------------------------- reads over client
+  // NOTE: these must read the reactive mirrors below (SvelteMap / $state), not
+  // `this.client` — the client is a plain object, so anything derived from it
+  // would never invalidate. `sync()` is what pushes client state into these.
 
   stateOf(id: string | null): RunState {
-    return this.client.stateOf(id);
+    if (!id) return "idle";
+    return this.runState.get(id) ?? "idle";
   }
 
   /** Optimistic model echo, else the attached model. */
   modelOf(sessionId: string | null): { provider: string; modelId: string } | null | undefined {
-    return sessionId ? this.client.effectiveModel(sessionId) : undefined;
+    if (!sessionId) return undefined;
+    return (
+      this.pendingModel.get(sessionId) ??
+      (this.attached.get(sessionId)?.model as { provider: string; modelId: string } | null) ??
+      undefined
+    );
   }
 
   transcript(sessionId: string): TranscriptEntry[] {
@@ -180,7 +189,10 @@ export class UiState {
     this.recentDirs = c.recentDirs;
     this.models = c.models;
     this.activeId = c.activeId;
-    this.uiEvents = [...c.getUiEvents()];
+    const events = c.getUiEvents();
+    // same contents → keep the existing array so consumers' $effects don't
+    // re-run on every unrelated sync (notifications are drained by id)
+    if (events.length !== this.uiEvents.length) this.uiEvents = [...events];
     this.error = c.error;
 
     for (const s of c.attachedSessionsList) this.attached.set(s.sessionId, s);
@@ -189,8 +201,12 @@ export class UiState {
     }
     for (const id of [...this.attached.keys()]) {
       this.runState.set(id, c.stateOf(id));
-      this.liveEvents.set(id, c.liveEvents(id));
-      this.sentMessages.set(id, c.sentMessages(id));
+      // only replace when the reference actually changed, so a sync caused by
+      // one session doesn't invalidate every other session's transcript
+      const live = c.liveEvents(id);
+      if (this.liveEvents.get(id) !== live) this.liveEvents.set(id, live);
+      const sent = c.sentMessages(id);
+      if (this.sentMessages.get(id) !== sent) this.sentMessages.set(id, sent);
       const ctx = c.contextTokens(id);
       if (ctx !== undefined) this.contextTokens.set(id, ctx);
       const pm = c.pendingModel(id);

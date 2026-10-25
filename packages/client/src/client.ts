@@ -321,7 +321,8 @@ export class UipiClient {
     switch (m.type) {
       case "proto.modelSet": {
         const a = this.attachedSessions.get(m.sessionId);
-        if (a) a.model = m.model;
+        // replace (don't mutate): mirrors key off object identity
+        if (a) this.attachedSessions.set(m.sessionId, { ...a, model: m.model });
         this.pendingModelById.delete(m.sessionId);
         break;
       }

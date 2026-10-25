@@ -16,4 +16,9 @@ export default defineConfig({
       "/ws": { target: "ws://127.0.0.1:8787", ws: true },
     },
   },
+  test: {
+    include: ["test/**/*.test.ts"],
+    environment: "happy-dom",
+    server: { deps: { inline: ["svelte"] } },
+  },
 });
