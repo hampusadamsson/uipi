@@ -112,7 +112,7 @@ export class SessionService {
         // turn), which is what users expect from "just send it".
         if (!s.session.isIdle) {
           s.session.followUp(msg.text);
-          this.broadcastQueues(s);
+          this.broadcastQueues(s, { followUp: msg.text });
           break;
         }
         s.session
@@ -122,11 +122,11 @@ export class SessionService {
       }
       case "pi.steer":
         s.session.steer(msg.text);
-        this.broadcastQueues(s);
+        this.broadcastQueues(s, { steering: msg.text });
         break;
       case "pi.followUp":
         s.session.followUp(msg.text);
-        this.broadcastQueues(s);
+        this.broadcastQueues(s, { followUp: msg.text });
         break;
       case "pi.abort":
         await s.session.abort();
@@ -343,6 +343,13 @@ export class SessionService {
       },
     });
     live.unsubscribe = session.subscribe((event) => {
+      // A queued message becomes a real user message when pi delivers it: clear
+      // the pending chip at that moment. Without this the UI keeps showing a
+      // queued prompt that has already been consumed.
+      const e = event as { type?: string; message?: { role?: string } };
+      if (e?.type === "message_start" && e.message?.role === "user") {
+        this.broadcastQueues(live);
+      }
       for (const sub of live.subscribers.keys()) {
         try {
           sub.send({ type: "pi.evt", sessionId: id, event });
@@ -364,13 +371,27 @@ export class SessionService {
     reply(await attachPayload(live));
   }
 
-  /** Push queue contents to this session's subscribers so chips appear at once. */
-  private broadcastQueues(s: LiveSession): void {
+  /**
+   * Push queue contents so the UI can show pending chips.
+   *
+   * pi drains its queues as soon as an item is picked up, so reading them back
+   * right after enqueueing usually yields an empty list. `justQueued` therefore
+   * carries the text that was accepted to make the chip appear, while the
+   * read-back lists describe anything still genuinely waiting.
+   */
+  private broadcastQueues(
+    s: LiveSession,
+    justQueued?: { steering?: string; followUp?: string },
+  ): void {
+    const steering = [...s.session.getSteeringMessages()];
+    const followUp = [...s.session.getFollowUpMessages()];
+    if (justQueued?.steering && steering.length === 0) steering.push(justQueued.steering);
+    if (justQueued?.followUp && followUp.length === 0) followUp.push(justQueued.followUp);
     const msg = {
       type: "proto.queues" as const,
       sessionId: s.id,
-      steering: [...s.session.getSteeringMessages()],
-      followUp: [...s.session.getFollowUpMessages()],
+      steering,
+      followUp,
     };
     for (const sub of s.subscribers.keys()) {
       try {
