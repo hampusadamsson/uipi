@@ -5,15 +5,6 @@ import type { C2S, S2C } from "@uipi/protocol";
  * Server owns sessions; they live while the browser is closed.
  */
 
-export interface SessionHandle {
-  sessionId: string;
-  cwd: string;
-  createdAt: number;
-  /** raw pi event listener unsubscribe */
-  unsubscribe: () => void;
-  disposing: boolean;
-}
-
 export type Send = (msg: S2C) => void;
 
 export interface Subscriber {

@@ -137,12 +137,6 @@ export type S2C = S2CBase & (
     }
   | { type: "proto.detached"; sessionId: string }
   | { type: "proto.modelSet"; sessionId: string; model: { provider: string; modelId: string } | null }
-  | { type: "proto.sessionClosed"; sessionId: string }
   | { type: "ui.event"; event: UiEvent }
   | { type: "pi.evt"; sessionId: string; event: unknown }
 );
-
-export interface Envelope {
-  /** correlation id for command replies */
-  id?: string;
-}
