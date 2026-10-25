@@ -312,7 +312,24 @@ export class SessionService {
     };
     this.live.set(id, live);
     if (session.sessionFile) this.byFile.set(session.sessionFile, id);
-    await session.bindExtensions({ uiContext: uiHost.ui, mode: "rpc" });
+    await session.bindExtensions({
+      uiContext: uiHost.ui,
+      mode: "rpc",
+      // surface extension failures as user-visible errors instead of swallowing
+      // them: a broken/unsupported extension call would otherwise look like a
+      // command that silently did nothing
+      onError: (err) => {
+        const detail = err as unknown as { error?: unknown; message?: string };
+        const text = String(detail?.error ?? detail?.message ?? err);
+        for (const sub of live.subscribers.keys()) {
+          try {
+            sub.send({ type: "proto.error", message: `extension error: ${text}` });
+          } catch {
+            /* dead subscriber */
+          }
+        }
+      },
+    });
     live.unsubscribe = session.subscribe((event) => {
       for (const sub of live.subscribers.keys()) {
         try {

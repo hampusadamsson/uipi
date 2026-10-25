@@ -280,6 +280,54 @@ describe("UipiClient headless", () => {
     expect(client.activePath()).toBe(path);
   });
 
+  it("calls onReady after connecting, once sessions are available", async () => {
+    // simulate a fresh load: a new client, nothing attached yet
+    const srv = new FakeServer();
+    const c = new UipiClient(new Conn({ url: "ws://test/ws", createSocket: srv.factory }));
+    let sessionsAtReady = -1;
+    let pathAtReady = "";
+    c.onReady = async (cl) => {
+      // the frontend must be able to resolve a URL here — sessions are loaded
+      sessionsAtReady = cl.sessions.length;
+      pathAtReady = pathFor(cl.sessions[0].sessionFile);
+      await cl.openPath(pathAtReady);
+    };
+    c.attach();
+    srv.sockets[0].onopen?.();
+    await flush();
+    await flush();
+    await flush();
+
+    expect(sessionsAtReady).toBe(1);
+    expect(c.activeId).toBe("sess-1");
+    expect(c.activePath()).toBe(pathAtReady);
+  });
+
+  it("restores the URL session on reconnect, not just first connect", async () => {
+    const srv = new FakeServer();
+    const c = new UipiClient(new Conn({ url: "ws://test/ws", createSocket: srv.factory }));
+    const readyPaths: string[] = [];
+    c.onReady = async (cl) => {
+      const p = pathFor(srv.sessionFile);
+      readyPaths.push(p);
+      await cl.openPath(p);
+    };
+    c.attach();
+    srv.sockets[0].onopen?.();
+    await flush();
+    await flush();
+
+    // drop the connection and let it come back — the frontend re-hydrates again
+    srv.sockets[0].onclose?.();
+    await new Promise((r) => setTimeout(r, 1200));
+    srv.sockets.at(-1)!.onopen?.();
+    await flush();
+    await flush();
+
+    expect(readyPaths.length).toBeGreaterThanOrEqual(2);
+    expect(c.activeId).toBe("sess-1");
+  });
+
   it("reports false for an unknown /s/<hash> path", async () => {
     expect(await client.openPath("/s/00000000")).toBe(false);
     expect(await client.openPath("/not-a-session")).toBe(false);

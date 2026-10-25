@@ -60,6 +60,13 @@ export class UipiClient {
   private uiEvents: UiEvent[] = [];
   private listeners = new Set<() => void>();
 
+  /**
+   * Called after the initial connect has loaded sessions, models and recent
+   * dirs. A frontend restores its own view state here (the web app reopens the
+   * session named by the URL). Awaited before the client finishes connecting.
+   */
+  onReady: (client: UipiClient) => void | Promise<void> = () => {};
+
   constructor(conn: Conn) {
     this.conn = conn;
     conn.onOpen = () => {
@@ -287,9 +294,10 @@ export class UipiClient {
   private async onConnect(): Promise<void> {
     void this.refreshRecentDirs();
     void this.refreshModels();
-    // the frontend decides what to restore; see openPath()
     await this.refreshSessions();
     this.emit();
+    // let the frontend restore its view (e.g. the session named by the URL)
+    await this.onReady(this);
   }
 
   private async onAttached(a: AttachedMsg): Promise<void> {

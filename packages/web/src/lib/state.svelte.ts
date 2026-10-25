@@ -52,6 +52,11 @@ export class UiState {
       }),
     );
     this.client.onChange(() => this.sync());
+    // restore the session named by the URL on first connect and every reconnect
+    this.client.onReady = async () => {
+      await this.hydrateFromUrl();
+      this.syncUrl();
+    };
   }
 
   init() {

@@ -3,6 +3,28 @@ import type { S2C, UiEvent } from "@uipi/protocol";
 import type { Send } from "./types.js";
 
 /**
+ * A no-op terminal theme. Web mode has no ANSI color, so every style helper
+ * returns its text verbatim. Extensions that decorate text (e.g.
+ * `ctx.ui.theme.fg("accent", ...)`) keep working instead of throwing.
+ *
+ * Two shapes are used by pi's Theme: token styles take `(token, text)` —
+ * fg/bg — and attribute styles take `(text)` — bold/italic/underline/etc.
+ */
+const plainTheme = new Proxy(
+  {},
+  {
+    get: (_target, prop) => {
+      if (prop === "appearance") return "dark";
+      if (prop === "colors") return {};
+      if (prop === "fg" || prop === "bg" || prop === "token") {
+        return (_token?: unknown, text?: unknown) => (typeof text === "string" ? text : "");
+      }
+      return (text?: unknown) => (typeof text === "string" ? text : "");
+    },
+  },
+) as ExtensionUIContext["theme"];
+
+/**
  * Web-mode ExtensionUIContext host: bridges pi extension `ctx.ui` calls
  * (select/confirm/input/notify) over the WS protocol to browser UI and
  * routes `ui.dialogResponse`/`ui.selectResponse` commands back into the
@@ -66,7 +88,10 @@ export class UiHost {
     addAutocompleteProvider: () => {},
     setEditorComponent: () => {},
     getEditorComponent: () => undefined,
-    theme: undefined as never,
+    // Extensions call ctx.ui.theme.fg(...) to style terminal text. In web mode
+    // there are no ANSI colors: return the text unchanged so extensions that
+    // decorate status/notifications don't crash.
+    theme: plainTheme,
     getAllThemes: () => [],
     getTheme: () => undefined,
     setTheme: () => ({ success: false, error: "themes not available in web mode" }),
