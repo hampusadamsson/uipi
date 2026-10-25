@@ -1,14 +1,7 @@
 import { SvelteMap } from "svelte/reactivity";
 import { Conn } from "./conn.js";
 import { hash8, hashFromPath, pathFor } from "./route.js";
-import type {
-  Attachment,
-  C2S,
-  ModelInfo,
-  SessionSummary,
-  S2C,
-  UiEvent,
-} from "@uipi/protocol";
+import type { Attachment, C2S, ModelInfo, SessionSummary, S2C, UiEvent } from "@uipi/protocol";
 
 export type RunState = "idle" | "thinking" | "streaming" | "tooling";
 
@@ -82,24 +75,28 @@ export class UiState {
   }
 
   async newSession(cwd: string, agentDir?: string) {
-    const m = await this.conn.request<
-      S2C & { type: "proto.attached"; sessionId: string }
-    >({ type: "proto.newSession", cwd, agentDir });
+    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
+      type: "proto.newSession",
+      cwd,
+      agentDir,
+    });
     await this.onAttached(m);
     await this.refreshSessions();
   }
 
   async openSession(sessionFile: string, pushUrl = true) {
-    const m = await this.conn.request<
-      S2C & { type: "proto.attached"; sessionId: string }
-    >({ type: "proto.openSession", sessionFilePath: sessionFile });
+    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
+      type: "proto.openSession",
+      sessionFilePath: sessionFile,
+    });
     await this.onAttached(m, pushUrl);
   }
 
   async attach(sessionId: string) {
-    const m = await this.conn.request<
-      S2C & { type: "proto.attached"; sessionId: string }
-    >({ type: "proto.attach", sessionId });
+    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
+      type: "proto.attach",
+      sessionId,
+    });
     await this.onAttached(m);
   }
 
@@ -254,13 +251,12 @@ export class UiState {
         break;
       case "message_end": {
         // context usage ≈ input + cacheRead + cacheWrite of latest assistant msg
-        const msg = (ev as { message?: { usage?: Record<string, number>; stopReason?: string } }).message;
+        const msg = (ev as { message?: { usage?: Record<string, number>; stopReason?: string } })
+          .message;
         if (msg?.usage) {
           this.contextTokens.set(
             sessionId,
-            (msg.usage.input ?? 0) +
-              (msg.usage.cacheRead ?? 0) +
-              (msg.usage.cacheWrite ?? 0)
+            (msg.usage.input ?? 0) + (msg.usage.cacheRead ?? 0) + (msg.usage.cacheWrite ?? 0),
           );
         }
         // toolUse → agent loop continues; don't flicker to idle

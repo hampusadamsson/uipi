@@ -92,7 +92,10 @@ export class SessionService {
         break;
       }
       default:
-        reply({ type: "proto.error", message: `unknown message ${(msg as { type?: string }).type}` });
+        reply({
+          type: "proto.error",
+          message: `unknown message ${(msg as { type?: string }).type}`,
+        });
     }
   }
 
@@ -104,9 +107,9 @@ export class SessionService {
     }
     switch (msg.type) {
       case "pi.prompt":
-        s.session.prompt(msg.text).catch((e: unknown) =>
-          reply({ type: "proto.error", message: String(e) })
-        );
+        s.session
+          .prompt(msg.text)
+          .catch((e: unknown) => reply({ type: "proto.error", message: String(e) }));
         break;
       case "pi.steer":
         s.session.steer(msg.text);
@@ -148,13 +151,15 @@ export class SessionService {
         }
         break;
       case "pi.compact":
-        s.session.compact().catch((e: unknown) =>
-          reply({ type: "proto.error", message: String(e) })
-        );
+        s.session
+          .compact()
+          .catch((e: unknown) => reply({ type: "proto.error", message: String(e) }));
         break;
       case "pi.cancelQueued": {
         const list =
-          msg.kind === "steer" ? [...s.session.getSteeringMessages()] : [...s.session.getFollowUpMessages()];
+          msg.kind === "steer"
+            ? [...s.session.getSteeringMessages()]
+            : [...s.session.getFollowUpMessages()];
         if (!list[msg.index]) {
           reply({ type: "proto.error", message: "no such queued message" });
           break;
@@ -168,7 +173,12 @@ export class SessionService {
     }
   }
 
-  private async newSession(cwd: string, agentDir: string | undefined, reply: Send, sub: Subscriber) {
+  private async newSession(
+    cwd: string,
+    agentDir: string | undefined,
+    reply: Send,
+    sub: Subscriber,
+  ) {
     try {
       const live = await this.materialize(cwd, undefined, agentDir);
       this.pushRecentDir(cwd);
@@ -247,19 +257,27 @@ export class SessionService {
     this.broadcast?.(msg, reply);
   }
 
-  private async materialize(cwd: string, sessionFile: string | undefined, agentDir: string | undefined): Promise<LiveSession> {
-    const effectiveAgentDir = agentDir && agentDir.trim() ? agentDir.trim().replace(/^~(?=\/)/, `${process.env.HOME ?? "~"}`) : undefined;
+  private async materialize(
+    cwd: string,
+    sessionFile: string | undefined,
+    agentDir: string | undefined,
+  ): Promise<LiveSession> {
+    const effectiveAgentDir =
+      agentDir && agentDir.trim()
+        ? agentDir.trim().replace(/^~(?=\/)/, `${process.env.HOME ?? "~"}`)
+        : undefined;
     if (effectiveAgentDir && !existsSync(effectiveAgentDir)) {
       throw new Error(`agent dir does not exist: ${effectiveAgentDir}`);
     }
-    const services = await createAgentSessionServices({ cwd, agentDir: effectiveAgentDir });
     const runtime = await this.createRuntime(
       async ({ cwd: _c }) => {
         const services = await createAgentSessionServices({ cwd: _c, agentDir: effectiveAgentDir });
         return {
           ...(await createAgentSessionFromServices({
             services,
-            sessionManager: sessionFile ? SessionManager.open(sessionFile) : SessionManager.create(_c),
+            sessionManager: sessionFile
+              ? SessionManager.open(sessionFile)
+              : SessionManager.create(_c),
           })),
           services,
         } as never;
@@ -267,7 +285,7 @@ export class SessionService {
       {
         cwd,
         sessionManager: sessionFile ? SessionManager.open(sessionFile) : SessionManager.create(cwd),
-      } as never
+      } as never,
     );
     const session: AgentSession = (runtime as unknown as { session: AgentSession }).session;
     const id = randomUUID();
@@ -359,7 +377,7 @@ function summary(
     modified: Date;
     cwd: string;
   },
-  service: SessionService
+  service: SessionService,
 ): SessionSummary {
   const liveId = service["byFile"].get(info.path);
   return {

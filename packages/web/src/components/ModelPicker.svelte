@@ -9,13 +9,17 @@
   let open = $state(false);
   let filter = $state("");
 
-  const attach = $derived(ui.attached.get(sessionId) as { model?: { provider: string; modelId: string } } | undefined);
+  const attach = $derived(
+    ui.attached.get(sessionId) as { model?: { provider: string; modelId: string } } | undefined,
+  );
   const cur = $derived(ui.pendingModel.get(sessionId) ?? attach?.model ?? undefined);
   const all = $derived(ui.models.length <= 50);
   const visible = $derived.by(() => {
     const q = filter.trim().toLowerCase();
     const list = q
-      ? ui.models.filter((m) => `${m.provider}/${m.modelId} ${m.displayName}`.toLowerCase().includes(q))
+      ? ui.models.filter((m) =>
+          `${m.provider}/${m.modelId} ${m.displayName}`.toLowerCase().includes(q),
+        )
       : ui.models;
     return list.slice(0, all ? 100 : 300);
   });
@@ -41,17 +45,24 @@
     <div class="max-h-96 overflow-y-auto">
       {#each visible as m (m.provider + m.modelId)}
         <button
-          class="w-full text-left text-xs px-3 py-2 min-h-10 hover:bg-accent hover:text-accent-foreground {cur?.modelId === m.modelId ? 'text-primary' : ''}"
+          class="w-full text-left text-xs px-3 py-2 min-h-10 hover:bg-accent hover:text-accent-foreground {cur?.modelId ===
+          m.modelId
+            ? 'text-primary'
+            : ''}"
           onclick={() => pick(m)}
         >
           <span class="font-medium">{m.displayName}</span>
-          <span class="text-muted-foreground"> {m.provider} · {m.reasoning ? "reasoning" : ""}</span>
+          <span class="text-muted-foreground">
+            {m.provider} · {m.reasoning ? "reasoning" : ""}</span
+          >
         </button>
       {:else}
         <div class="text-xs text-muted-foreground px-3 py-2">no models match</div>
       {/each}
       {#if ui.models.length > visible.length}
-        <div class="text-[10px] text-muted-foreground px-3 py-1">{ui.models.length} total — filter to narrow</div>
+        <div class="text-[10px] text-muted-foreground px-3 py-1">
+          {ui.models.length} total — filter to narrow
+        </div>
       {/if}
     </div>
   </Popover.Content>

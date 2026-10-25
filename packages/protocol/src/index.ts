@@ -115,28 +115,33 @@ export interface S2CBase {
   id?: string;
 }
 
-export type S2C = S2CBase & (
-  | { type: "proto.error"; message: string; requestId?: string }
-  | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
-  | { type: "proto.recentDirs"; dirs: RecentDir[] }
-  | { type: "proto.models"; models: ModelInfo[] }
-  | {
-      type: "proto.attached";
-      sessionId: string;
-      /** Serialized transcript snapshot from session.messages */
-      messages: unknown[];
-      model: { provider: string; modelId: string } | null;
-      thinkingLevel: string;
-      tools: string[];
-      cwd: string;
-      isStreaming: boolean;
-      steering: unknown[];
-      followUp: unknown[];
-      /** stable session file path (durable across reloads; live sessions only) */
-      sessionFile: string | null;
-    }
-  | { type: "proto.detached"; sessionId: string }
-  | { type: "proto.modelSet"; sessionId: string; model: { provider: string; modelId: string } | null }
-  | { type: "ui.event"; event: UiEvent }
-  | { type: "pi.evt"; sessionId: string; event: unknown }
-);
+export type S2C = S2CBase &
+  (
+    | { type: "proto.error"; message: string; requestId?: string }
+    | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
+    | { type: "proto.recentDirs"; dirs: RecentDir[] }
+    | { type: "proto.models"; models: ModelInfo[] }
+    | {
+        type: "proto.attached";
+        sessionId: string;
+        /** Serialized transcript snapshot from session.messages */
+        messages: unknown[];
+        model: { provider: string; modelId: string } | null;
+        thinkingLevel: string;
+        tools: string[];
+        cwd: string;
+        isStreaming: boolean;
+        steering: unknown[];
+        followUp: unknown[];
+        /** stable session file path (durable across reloads; live sessions only) */
+        sessionFile: string | null;
+      }
+    | { type: "proto.detached"; sessionId: string }
+    | {
+        type: "proto.modelSet";
+        sessionId: string;
+        model: { provider: string; modelId: string } | null;
+      }
+    | { type: "ui.event"; event: UiEvent }
+    | { type: "pi.evt"; sessionId: string; event: unknown }
+  );

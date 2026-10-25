@@ -1,4 +1,4 @@
-import type { C2S, S2C } from "@uipi/protocol";
+import type { S2C } from "@uipi/protocol";
 
 /**
  * SessionService wraps one pi AgentSession + its WS subscribers.

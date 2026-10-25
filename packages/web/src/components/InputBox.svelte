@@ -21,7 +21,7 @@
   const attach = $derived(
     ui.attached.get(sessionId) as
       | { isStreaming?: boolean; cwd?: string; steering?: unknown[]; followUp?: unknown[] }
-      | undefined
+      | undefined,
   );
   const runState = $derived(ui.stateOf(sessionId));
   const steering = $derived(attach?.steering ?? []);
@@ -33,14 +33,18 @@
     const s =
       typeof q === "string"
         ? q
-        : (q as { text?: string; message?: string })?.text ??
+        : ((q as { text?: string; message?: string })?.text ??
           (q as { message?: string })?.message ??
-          "";
+          "");
     return String(s).slice(0, 60);
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window || navigator.maxTouchPoints > 0)) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !("ontouchstart" in window || navigator.maxTouchPoints > 0)
+    ) {
       // desktop: Enter sends
       e.preventDefault();
       send();
@@ -107,36 +111,42 @@
 <div class="border-t border-border px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
   {#if steering.length + followUp.length > 0}
     <div class="flex flex-wrap gap-1 mb-1">
-      {#each steering as s, i}
+      {#each steering as s, i (i)}
         <Badge variant="outline" class="text-amber-500 gap-1 max-w-full">
           <span class="truncate">steer: {textOf(s)}</span>
           <button
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
             aria-label="Cancel steering message"
-            onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}>×</button
+            onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}
+            >×</button
           >
         </Badge>
       {/each}
-      {#each followUp as f, i}
+      {#each followUp as f, i (i)}
         <Badge variant="outline" class="text-sky-500 gap-1 max-w-full">
           <span class="truncate">followUp: {textOf(f)}</span>
           <button
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
             aria-label="Cancel follow-up message"
-            onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}>×</button
+            onclick={() =>
+              ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}>×</button
           >
         </Badge>
       {/each}
     </div>
   {/if}
   {#if acItems.length > 0}
-    <div class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1">
-      {#each acItems as s, i}
+    <div
+      class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1"
+    >
+      {#each acItems as s, i (s)}
         <div
           class="text-xs px-3 py-2 cursor-pointer min-h-9 {i === acIndex ? 'bg-accent' : ''}"
           onmouseenter={() => (acIndex = i)}
           onclick={acceptAc}
-        >{s}</div>
+        >
+          {s}
+        </div>
       {/each}
     </div>
   {/if}
@@ -149,7 +159,9 @@
       rows={2}
       enterkeyhint="send"
       autocomplete="off"
-      placeholder={runState === "idle" ? "Message ('/' for commands, @file to reference)" : "…agent is working — send to steer"}
+      placeholder={runState === "idle"
+        ? "Message ('/' for commands, @file to reference)"
+        : "…agent is working — send to steer"}
       class="min-h-11 max-h-40 resize-none text-base md:text-sm"
     ></Textarea>
     <div class="flex flex-col gap-1 shrink-0">

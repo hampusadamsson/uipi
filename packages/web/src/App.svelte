@@ -33,9 +33,8 @@
   const attach = $derived(
     ui.activeId
       ? (ui.attached.get(ui.activeId) as
-          | (Attachment & { model?: { provider: string; modelId: string } | null })
-          | undefined)
-      : undefined
+          (Attachment & { model?: { provider: string; modelId: string } | null }) | undefined)
+      : undefined,
   );
   const pendingModel = $derived(ui.activeId ? ui.pendingModel.get(ui.activeId) : undefined);
   const modelShown = $derived(pendingModel ?? attach?.model ?? undefined);
@@ -71,8 +70,8 @@
           size="icon-sm"
           class="md:hidden shrink-0"
           aria-label="Menu"
-          onclick={toggleSidebar}
-        >☰</Button>
+          onclick={toggleSidebar}>☰</Button
+        >
         <span class="text-sm font-semibold truncate hidden sm:inline">{attach.cwd}</span>
         <span class="text-xs text-muted-foreground truncate sm:hidden">
           {attach.cwd.split("/").pop()}
@@ -80,7 +79,8 @@
         <Badge
           variant="secondary"
           class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
-        >{runLabel[run]}</Badge>
+          >{runLabel[run]}</Badge
+        >
         <span class="text-xs text-muted-foreground hidden lg:inline">
           {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
         </span>
@@ -97,8 +97,8 @@
             variant="destructive"
             size="sm"
             class="text-xs shrink-0"
-            onclick={() => ui.cmd({ type: "pi.abort", sessionId: attach.sessionId })}
-          >Stop</Button>
+            onclick={() => ui.cmd({ type: "pi.abort", sessionId: attach.sessionId })}>Stop</Button
+          >
         {/if}
       </header>
       <Chat sessionId={attach.sessionId} />

@@ -9,7 +9,7 @@
   let open = $state(false);
 
   const attach = $derived(
-    ui.attached.get(sessionId) as (Attachment & { thinkingLevel?: string }) | undefined
+    ui.attached.get(sessionId) as (Attachment & { thinkingLevel?: string }) | undefined,
   );
   const cur = $derived(attach?.thinkingLevel ?? "");
 
@@ -31,9 +31,12 @@
     {/snippet}
   </Popover.Trigger>
   <Popover.Content class="w-40 p-1" align="end">
-    {#each levels as level}
+    {#each levels as level (level)}
       <button
-        class="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground {cur === level ? 'text-primary' : ''}"
+        class="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground {cur ===
+        level
+          ? 'text-primary'
+          : ''}"
         onclick={() => pick(level)}
       >
         {level}{#if cur === level}<Badge variant="outline" class="ml-2">current</Badge>{/if}

@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { C2S, S2C, UiEvent } from "@uipi/protocol";
+import type { S2C, UiEvent } from "@uipi/protocol";
 import type { Send } from "./types.js";
 
 /**
@@ -13,7 +13,10 @@ export class UiHost {
   private nextId = 1;
   private send: Send = () => {};
 
-  constructor(private sessionId: () => string, private mode = "rpc") {}
+  constructor(
+    private sessionId: () => string,
+    private mode = "rpc",
+  ) {}
 
   /** wire to the WS subscriber with implicit-attach semantics */
   attachSend(send: Send): void {
@@ -72,7 +75,10 @@ export class UiHost {
   } as ExtensionUIContext;
 
   /** Protocol surface the client sees (mirrors @uipi/protocol UiEvent kinds) */
-  private request<T>(kind: "select" | "confirm" | "input", payload: unknown): Promise<T | undefined> {
+  private request<T>(
+    kind: "select" | "confirm" | "input",
+    payload: unknown,
+  ): Promise<T | undefined> {
     const id = `ui${this.nextId++}`;
     return new Promise((resolve) => {
       // tie-breaker so a closed browser doesn't hang the extension forever
@@ -91,7 +97,9 @@ export class UiHost {
               selectId: id,
               sessionId: this.sessionId(),
               title: (payload as { title: string }).title,
-              options: ((payload as { options: string[] }).options ?? []).map((label) => ({ label })),
+              options: ((payload as { options: string[] }).options ?? []).map((label) => ({
+                label,
+              })),
             }
           : {
               kind: "dialog",

@@ -5,9 +5,7 @@
   import { toast } from "svelte-sonner";
   import type { UiSelectRequest, UiDialogRequest } from "@uipi/protocol";
 
-  const current = $derived(
-    ui.uiEvents.find((e) => e.kind !== "notification")
-  );
+  const current = $derived(ui.uiEvents.find((e) => e.kind !== "notification"));
   let open = $derived(current !== undefined);
 
   // non-blocking notifications → toasts, popped from the queue
@@ -54,7 +52,12 @@
   }
 </script>
 
-<Dialog.Root {open} onOpenChange={(o) => { if (!o) cancel(); }}>
+<Dialog.Root
+  {open}
+  onOpenChange={(o) => {
+    if (!o) cancel();
+  }}
+>
   <Dialog.Content class="sm:max-w-[28rem]">
     {#if current}
       {#if isSelect(current)}
@@ -62,8 +65,12 @@
           <Dialog.Title>{current.title}</Dialog.Title>
         </Dialog.Header>
         <div class="flex flex-col gap-1 max-h-96 overflow-y-auto">
-          {#each current.options as opt, i}
-            <Button variant="outline" class="justify-start text-sm font-normal" onclick={() => resolveSelect(current, i)}>
+          {#each current.options as opt, i (i)}
+            <Button
+              variant="outline"
+              class="justify-start text-sm font-normal"
+              onclick={() => resolveSelect(current, i)}
+            >
               {labelOf(opt)}
             </Button>
           {/each}
@@ -75,7 +82,12 @@
         <Dialog.Header>
           <Dialog.Title>{current.title}</Dialog.Title>
         </Dialog.Header>
-        <pre class="text-xs text-muted-foreground whitespace-pre-wrap max-h-64 overflow-auto">{JSON.stringify(current.payload, null, 2)}</pre>
+        <pre
+          class="text-xs text-muted-foreground whitespace-pre-wrap max-h-64 overflow-auto">{JSON.stringify(
+            current.payload,
+            null,
+            2,
+          )}</pre>
         <Dialog.Footer>
           <Button variant="outline" onclick={() => resolveDialog(current, false)}>Dismiss</Button>
           <Button onclick={() => resolveDialog(current, true)}>OK</Button>

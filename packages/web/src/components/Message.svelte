@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { ui } from "$lib/state.svelte";
   import type { TranscriptEntry } from "$lib/transcript.js";
   import ToolCall from "./ToolCall.svelte";
   import { Card, CardContent } from "$lib/components/ui/card/index.js";
@@ -8,7 +7,6 @@
   import { Separator } from "$lib/components/ui/separator/index.js";
 
   let { entry }: { entry: TranscriptEntry } = $props();
-  let open = $state(false);
   let thinkOpen = $state(false);
 
   const isUser = $derived(entry.role === "user");
@@ -39,8 +37,7 @@
           </Collapsible.Trigger>
           <Collapsible.Content>
             <pre
-              class="text-xs text-muted-foreground bg-muted/30 border border-border rounded-md px-2 py-1.5 mt-1 whitespace-pre-wrap break-words max-h-64 overflow-auto"
-            >{entry.thinking}</pre>
+              class="text-xs text-muted-foreground bg-muted/30 border border-border rounded-md px-2 py-1.5 mt-1 whitespace-pre-wrap break-words max-h-64 overflow-auto">{entry.thinking}</pre>
           </Collapsible.Content>
         </Collapsible.Root>
       {:else if entry.thinkingActive}
@@ -55,7 +52,8 @@
     </div>
   {:else}
     <div class="text-xs text-muted-foreground my-1 flex items-center gap-2">
-      <Separator class="w-6" /> {entry.text || entry.kind}
+      <Separator class="w-6" />
+      {entry.text || entry.kind}
     </div>
   {/if}
 </div>

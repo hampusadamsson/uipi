@@ -9,7 +9,7 @@ let httpServer: import("node:http").Server;
 beforeAll(async () => {
   const svc = new SessionService(
     // stub runtime factory — never called in these tests
-    undefined as never
+    undefined as never,
   );
   const created = createServer({ port: 0 }, svc);
   httpServer = created.httpServer;
@@ -30,7 +30,7 @@ function connect(p: number): Promise<WebSocket> {
   });
 }
 
-function nextMessage(ws: WebSocket, timeoutMs = 5000): Promise<any> {
+function nextMessage(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
     ws.once("message", (raw) => {

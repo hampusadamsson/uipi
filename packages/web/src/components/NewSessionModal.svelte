@@ -29,7 +29,9 @@
   <Dialog.Content class="sm:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>New session</Dialog.Title>
-      <Dialog.Description>Create a pi agent session bound to a project directory.</Dialog.Description>
+      <Dialog.Description
+        >Create a pi agent session bound to a project directory.</Dialog.Description
+      >
     </Dialog.Header>
     <div class="grid gap-3 py-2">
       <div class="grid gap-1.5">
@@ -37,7 +39,7 @@
         <Input id="cwd" bind:value={cwd} placeholder="/path/to/project" />
         {#if ui.recentDirs.length > 0}
           <div class="flex flex-wrap gap-1 mt-1">
-            {#each ui.recentDirs.slice(0, 6) as d}
+            {#each ui.recentDirs.slice(0, 6) as d (d)}
               <Badge variant="outline" class="cursor-pointer" onclick={() => (cwd = d)}>{d}</Badge>
             {/each}
           </div>
@@ -46,7 +48,9 @@
       <div class="grid gap-1.5">
         <Label for="agentdir">Config dir</Label>
         <Input id="agentdir" bind:value={agentDir} placeholder="~/.pi/agent" />
-        <p class="text-xs text-muted-foreground">Defaults to ~/.pi/agent (shared with terminal pi).</p>
+        <p class="text-xs text-muted-foreground">
+          Defaults to ~/.pi/agent (shared with terminal pi).
+        </p>
       </div>
     </div>
     <Dialog.Footer>

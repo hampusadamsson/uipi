@@ -73,7 +73,12 @@ describe("deriveTranscript", () => {
         },
         {
           type: "message_end",
-          message: { role: "assistant", id: "a1", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+          message: {
+            role: "assistant",
+            id: "a1",
+            stopReason: "stop",
+            content: [{ type: "text", text: "done" }],
+          },
         },
       ],
     });

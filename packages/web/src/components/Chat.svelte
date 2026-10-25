@@ -13,7 +13,7 @@
   const entries = $derived<TranscriptEntry[]>(
     attach
       ? deriveTranscript({ messages: attach.messages ?? [], events: live, sentMessages: sent })
-      : []
+      : [],
   );
   const run = $derived(ui.stateOf(sessionId));
 
@@ -37,7 +37,7 @@
 
   $effect(() => {
     // track reactive deps: lengths change on every push
-    const n = entries.length;
+    void entries.length;
     void live.length;
     void sent.length;
     if (scroller && pinned) scroller.scrollTop = scroller.scrollHeight;
@@ -58,11 +58,7 @@
     {#if run !== "idle"}
       <div class="text-xs text-muted-foreground animate-pulse my-2 flex items-center gap-2">
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
-        {run === "thinking"
-          ? "thinking…"
-          : run === "tooling"
-            ? "running tools…"
-            : "responding…"}
+        {run === "thinking" ? "thinking…" : run === "tooling" ? "running tools…" : "responding…"}
       </div>
     {/if}
   </div>
@@ -72,8 +68,8 @@
       size="icon-sm"
       class="absolute bottom-3 right-3 shadow-md rounded-full"
       aria-label="Scroll to latest"
-      onclick={scrollToBottom}
-    >↓</Button>
+      onclick={scrollToBottom}>↓</Button
+    >
   {/if}
 </div>
 <InputBox {sessionId} />

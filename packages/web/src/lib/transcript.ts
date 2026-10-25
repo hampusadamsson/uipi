@@ -62,9 +62,7 @@ function textOf(m: unknown): string {
   if (typeof mm.content === "string") return mm.content;
   if (Array.isArray(mm.content)) {
     return mm.content
-      .map((c) =>
-        typeof c === "string" ? c : (c as { text?: string })?.text ?? ""
-      )
+      .map((c) => (typeof c === "string" ? c : ((c as { text?: string })?.text ?? "")))
       .join("");
   }
   return "";
@@ -137,10 +135,19 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
     }
     case "compaction_start":
     case "compaction_end": {
-      const label = ev.type === "compaction_end"
-        ? `compacted · ${((ev as { summary?: string }).summary ?? "context condensed").slice(0, 120)}`
-        : "compacting context…";
-      out.push({ kind: "compaction", text: label, thinking: "", thinkingActive: false, toolCalls: [], raw: ev, id: `c${out.length}` });
+      const label =
+        ev.type === "compaction_end"
+          ? `compacted · ${((ev as { summary?: string }).summary ?? "context condensed").slice(0, 120)}`
+          : "compacting context…";
+      out.push({
+        kind: "compaction",
+        text: label,
+        thinking: "",
+        thinkingActive: false,
+        toolCalls: [],
+        raw: ev,
+        id: `c${out.length}`,
+      });
       break;
     }
     default:
@@ -171,7 +178,7 @@ function upsertToolCall(out: TranscriptEntry[], ev: Record<string, unknown>): vo
     const r = ev.result as { content?: unknown[]; isError?: boolean };
     if (Array.isArray(r?.content)) {
       tc.output = r.content
-        .map((c) => (typeof c === "string" ? c : (c as { text?: string })?.text ?? ""))
+        .map((c) => (typeof c === "string" ? c : ((c as { text?: string })?.text ?? "")))
         .join("");
     } else if (typeof r === "string") tc.output = r;
     tc.isError = Boolean(r?.isError);
@@ -182,7 +189,16 @@ function ensureAssistantEntry(out: TranscriptEntry[], callId: string): Transcrip
   // pi associates tool_call ids to assistant message; approximate: last assistant entry
   const lastAssistant = [...out].reverse().find((e) => e.role === "assistant");
   if (lastAssistant) return lastAssistant;
-  const e: TranscriptEntry = { kind: "message", role: "assistant", text: "", thinking: "", thinkingActive: false, toolCalls: [], raw: null, id: callId };
+  const e: TranscriptEntry = {
+    kind: "message",
+    role: "assistant",
+    text: "",
+    thinking: "",
+    thinkingActive: false,
+    toolCalls: [],
+    raw: null,
+    id: callId,
+  };
   out.push(e);
   return e;
 }

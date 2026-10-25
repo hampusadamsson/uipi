@@ -1,5 +1,4 @@
-import { svelte } from "@sveltejs/vite-plugin-svelte";
-
 export default {
-  vitePreprocess: true, // handles $lib alias via vite config + tsconfig paths
+  // vite handles preprocessing ($lib alias comes from vite config + tsconfig paths)
+  vitePreprocess: true,
 };
