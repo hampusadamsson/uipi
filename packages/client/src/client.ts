@@ -16,6 +16,8 @@ export interface AttachedSession {
   model: { provider: string; modelId: string } | null;
   thinkingLevel: string;
   tools: string[];
+  /** active role name, or null when roleless */
+  role: string | null;
   isStreaming: boolean;
   steering: unknown[];
   followUp: unknown[];
@@ -322,10 +324,17 @@ export class UipiClient {
 
   private handle(m: S2C): void {
     switch (m.type) {
-      case "proto.modelSet": {
+      case "proto.sessionState": {
         const a = this.attachedSessions.get(m.sessionId);
         // replace (don't mutate): mirrors key off object identity
-        if (a) this.attachedSessions.set(m.sessionId, { ...a, model: m.model });
+        if (a) {
+          this.attachedSessions.set(m.sessionId, {
+            ...a,
+            model: m.model,
+            thinkingLevel: m.thinkingLevel,
+            tools: m.tools,
+          });
+        }
         this.pendingModelById.delete(m.sessionId);
         break;
       }

@@ -139,12 +139,21 @@ export class SessionService {
             break;
           }
           await s.session.setModel(model);
-          // echo the new model to ALL subscribers of this session
+          // echo the new state to ALL subscribers of this session
           const m = s.session.model as unknown as { provider?: string; id?: string } | undefined;
           const modelRef = m?.provider && m?.id ? { provider: m.provider, modelId: m.id } : null;
           for (const s2 of s.subscribers.keys()) {
             try {
-              s2.send({ type: "proto.modelSet", sessionId: s.id, model: modelRef });
+              s2.send({
+                type: "proto.sessionState",
+                sessionId: s.id,
+                // role/commands are placeholders; later tasks fill them in
+                role: null,
+                model: modelRef,
+                thinkingLevel: String(s.session.thinkingLevel ?? ""),
+                tools: [...s.session.getActiveToolNames()],
+                commands: [],
+              });
             } catch {
               /* dead */
             }
@@ -466,6 +475,10 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     model: sessionModelRef(live.session),
     thinkingLevel: String(live.session.thinkingLevel ?? ""),
     tools: [...live.session.getActiveToolNames()],
+    // placeholders: filled in by the role / command-discovery / status tasks
+    role: null,
+    commands: [],
+    statuses: {},
     cwd: live.cwd,
     isStreaming: live.session.isIdle === false,
     steering: [...live.session.getSteeringMessages()],

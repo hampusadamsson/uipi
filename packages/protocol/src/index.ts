@@ -18,6 +18,7 @@ export type C2S =
       type: "proto.attach";
       sessionId: string;
     }
+  | { type: "proto.setRole"; sessionId: string; role: string | null; reload?: boolean }
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
@@ -129,6 +130,12 @@ export type S2C = S2CBase &
         model: { provider: string; modelId: string } | null;
         thinkingLevel: string;
         tools: string[];
+        /** active role name, or null when roleless */
+        role: string | null;
+        /** discoverable slash commands (extension, prompt templates, skills) */
+        commands: { name: string; description?: string }[];
+        /** extension status slots (key → text) */
+        statuses: Record<string, string>;
         cwd: string;
         isStreaming: boolean;
         steering: unknown[];
@@ -138,9 +145,22 @@ export type S2C = S2CBase &
       }
     | { type: "proto.detached"; sessionId: string }
     | {
-        type: "proto.modelSet";
+        /** full runtime state of a session after a change (model, role, tools, …) */
+        type: "proto.sessionState";
         sessionId: string;
+        /** active role name, or null when roleless */
+        role: string | null;
         model: { provider: string; modelId: string } | null;
+        thinkingLevel: string;
+        tools: string[];
+        /** discoverable slash commands (extension, prompt templates, skills) */
+        commands: { name: string; description?: string }[];
+      }
+    | {
+        /** extension status slots (key → text), replaced wholesale */
+        type: "proto.statuses";
+        sessionId: string;
+        statuses: Record<string, string>;
       }
     | {
         /** queued (waiting) messages for a running agent */

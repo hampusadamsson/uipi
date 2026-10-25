@@ -229,9 +229,13 @@ describe("UipiClient headless", () => {
     expect(client.effectiveModel("sess-1")).toEqual({ provider: "p", modelId: "m2" });
 
     server.sockets[0].deliver({
-      type: "proto.modelSet",
+      type: "proto.sessionState",
       sessionId: "sess-1",
+      role: null,
       model: { provider: "p", modelId: "m2" },
+      thinkingLevel: "off",
+      tools: [],
+      commands: [],
     } as S2C);
     await flush();
     expect(client.pendingModel("sess-1")).toBeUndefined();

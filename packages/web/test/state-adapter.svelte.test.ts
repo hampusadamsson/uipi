@@ -5,7 +5,7 @@
 //
 //  1. reads (`stateOf`, `modelOf`) went to `this.client.*`. The client is a
 //     plain object, so a $derived over those reads never invalidated.
-//  2. `proto.modelSet` mutated the attached-session object in place. Svelte's
+//  2. `proto.sessionState` mutated the attached-session object in place. Svelte's
 //     SvelteMap only notifies when the stored VALUE changes identity
 //     (`prev_res !== value`), so re-setting the same object was a no-op.
 //
@@ -22,6 +22,7 @@ function session(id: string, over: Partial<AttachedSession> = {}): AttachedSessi
     model: { provider: "p", modelId: "m1" },
     thinkingLevel: "off",
     tools: [],
+    role: null,
     cwd: "/proj",
     isStreaming: false,
     steering: [],
@@ -71,11 +72,15 @@ describe("UiState model change without refresh", () => {
     const before = ui.attached.get("s1");
     expect(before).toBeDefined();
 
-    // this is what the client now does on proto.modelSet
+    // this is what the client now does on proto.sessionState
     c.handle({
-      type: "proto.modelSet",
+      type: "proto.sessionState",
       sessionId: "s1",
+      role: null,
       model: { provider: "p", modelId: "m2" },
+      thinkingLevel: "off",
+      tools: [],
+      commands: [],
     } as S2C);
     sync(ui);
 
@@ -91,9 +96,13 @@ describe("UiState model change without refresh", () => {
     const before = c.attachedSessions.get("s1")!;
     const modelBefore = before.model;
     c.handle({
-      type: "proto.modelSet",
+      type: "proto.sessionState",
       sessionId: "s1",
+      role: null,
       model: { provider: "p", modelId: "m2" },
+      thinkingLevel: "off",
+      tools: [],
+      commands: [],
     } as S2C);
     // the original object keeps its old value → callers holding it can't be
     // silently mutated, and reference equality is meaningful
@@ -108,9 +117,13 @@ describe("UiState model change without refresh", () => {
     expect(ui.modelOf("s1")?.modelId).toBe("m9"); // instant
 
     c.handle({
-      type: "proto.modelSet",
+      type: "proto.sessionState",
       sessionId: "s1",
+      role: null,
       model: { provider: "p", modelId: "m9" },
+      thinkingLevel: "off",
+      tools: [],
+      commands: [],
     } as S2C);
     sync(ui);
     expect(ui.pendingModel.has("s1")).toBe(false);
