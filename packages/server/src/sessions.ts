@@ -183,6 +183,15 @@ export class SessionService {
 
   private async openSessionFile(file: string, reply: Send, sub: Subscriber) {
     try {
+      // already live? attach to the existing runtime instead of duplicating it
+      const existingId = this.byFile.get(file);
+      const existing = existingId ? this.live.get(existingId) : undefined;
+      if (existing) {
+        existing.subscribers.set(sub, true);
+        reply(await attachPayload(existing));
+        await this.replySessions(reply);
+        return;
+      }
       const cwd = inferCwdFromSessionFile(file) ?? process.cwd();
       const live = await this.materialize(cwd, file, undefined);
       // opener is implicitly attached — same as newSession
@@ -209,6 +218,20 @@ export class SessionService {
       } catch {
         /* skip inaccessible */
       }
+    }
+    // brand-new live sessions have a session file path but no file on disk yet
+    for (const live of this.live.values()) {
+      const file = live.sessionFile;
+      if (!file || set.has(file)) continue;
+      set.set(file, {
+        sessionId: live.id,
+        sessionFile: file,
+        displayName: "new session",
+        firstMessage: "",
+        mtime: live.createdAt,
+        live: true,
+        cwd: live.cwd,
+      });
     }
     return [...set.values()].sort((a, b) => b.mtime - a.mtime);
   }
@@ -357,6 +380,7 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     isStreaming: live.session.isIdle === false,
     steering: [...live.session.getSteeringMessages()],
     followUp: [...live.session.getFollowUpMessages()],
+    sessionFile: live.sessionFile ?? null,
   } satisfies S2C;
 }
 

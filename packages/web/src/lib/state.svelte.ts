@@ -1,5 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 import { Conn } from "./conn.js";
+import { hash8, hashFromPath, pathFor } from "./route.js";
 import type {
   Attachment,
   C2S,
@@ -38,7 +39,7 @@ export class UiState {
   init() {
     this.conn.onOpen = () => {
       this.connected = true;
-      void this.refreshSessions();
+      void this.hydrateFromUrl();
       void this.conn
         .request<S2C & { dirs: { path: string }[] }>({ type: "proto/recentDirs" })
         .then((m) => (this.recentDirs = m.dirs.map((d) => d.path)))
@@ -49,6 +50,7 @@ export class UiState {
       this.connected = false;
     };
     this.conn.onMessage = (m) => this.handle(m);
+    window.addEventListener("popstate", () => void this.hydrateFromUrl());
     this.conn.connect();
   }
 
@@ -87,11 +89,11 @@ export class UiState {
     await this.refreshSessions();
   }
 
-  async openSession(sessionFile: string) {
+  async openSession(sessionFile: string, pushUrl = true) {
     const m = await this.conn.request<
       S2C & { type: "proto.attached"; sessionId: string }
     >({ type: "proto.openSession", sessionFilePath: sessionFile });
-    await this.onAttached(m);
+    await this.onAttached(m, pushUrl);
   }
 
   async attach(sessionId: string) {
@@ -101,7 +103,7 @@ export class UiState {
     await this.onAttached(m);
   }
 
-  private async onAttached(m: S2C & { type: "proto.attached" }) {
+  private async onAttached(m: S2C & { type: "proto.attached" }, pushUrl = true) {
     const a = m as unknown as Attachment;
     a.events = [];
     this.attached.set(m.sessionId, a);
@@ -109,8 +111,33 @@ export class UiState {
     this.sentMessages.set(m.sessionId, []);
     this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
     this.activeId = m.sessionId;
+    if (pushUrl) this.syncUrl(m.sessionFile ?? null);
     void this.refreshModels();
     await this.refreshSessions();
+  }
+
+  // ---- URL sync: /s/<hash8-of-session-file> survives reload ----
+
+  private syncUrl(sessionFile: string | null): void {
+    const url = pathFor(sessionFile);
+    if (location.pathname !== url) history.pushState(null, "", url);
+  }
+
+  /** after sessions load, if the URL points at a session, re-open it */
+  async hydrateFromUrl(): Promise<void> {
+    const hash = hashFromPath(location.pathname);
+    if (!hash) {
+      void this.refreshSessions();
+      return;
+    }
+    await this.refreshSessions();
+    const hit = this.sessions.find((s) => hash8(s.sessionFile) === hash);
+    if (hit) {
+      await this.openSession(hit.sessionFile, false);
+    } else {
+      // e.g. a brand-new session whose file has no messages yet — just land on the empty view
+      history.replaceState(null, "", "/");
+    }
   }
 
   detach(id: string) {
@@ -119,7 +146,10 @@ export class UiState {
     this.runState.delete(id);
     this.liveEvents.delete(id);
     this.sentMessages.delete(id);
-    if (this.activeId === id) this.activeId = [...this.attached.keys()][0] ?? null;
+    if (this.activeId === id) {
+      this.activeId = [...this.attached.keys()][0] ?? null;
+      this.syncUrl(null);
+    }
   }
 
   cmd(m: C2S): void {

@@ -132,6 +132,8 @@ export type S2C = S2CBase & (
       isStreaming: boolean;
       steering: unknown[];
       followUp: unknown[];
+      /** stable session file path (durable across reloads; live sessions only) */
+      sessionFile: string | null;
     }
   | { type: "proto.detached"; sessionId: string }
   | { type: "proto.modelSet"; sessionId: string; model: { provider: string; modelId: string } | null }
