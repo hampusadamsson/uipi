@@ -171,6 +171,36 @@ describe("custom entry rendering", () => {
     expect(entries).toHaveLength(0);
   });
 
+  // The seam between the two rules: the snapshot's startup entry is stale state
+  // (drop it), while a switch that arrives later as a live event is something
+  // that happened (show it). Position, not `customType`, decides.
+  it("drops the snapshot's startup entry but keeps a later live role-switch", () => {
+    const startup = { ...roleSwitch("work"), id: "startup" };
+    const entries = deriveTranscript({
+      messages: [startup, userMsg],
+      events: [{ type: "entry_appended", entry: { ...roleSwitch("architect"), id: "live-1" } }],
+    });
+    const system = entries.filter((e) => e.kind === "system");
+    expect(system.map((e) => e.text)).toEqual(["◆ role → architect"]);
+    expect(system[0].id).toBe("role-live-1");
+    expect(entries.some((e) => e.id === "role-startup")).toBe(false);
+    // the user message that separates the two is still there
+    expect(entries.filter((e) => e.role === "user")).toHaveLength(1);
+  });
+
+  // Same rule with no snapshot user row at all: the optimistic prompt is the
+  // user row, so a switch made right after sending it is still announced.
+  it("renders a live switch that follows only an optimistic user message", () => {
+    const entries = deriveTranscript({
+      messages: [{ ...roleSwitch("work"), id: "startup" }],
+      events: [{ type: "entry_appended", entry: { ...roleSwitch("architect"), id: "live-2" } }],
+      sentMessages: ["switch me"],
+    });
+    const system = entries.filter((e) => e.kind === "system");
+    expect(system.map((e) => e.text)).toEqual(["◆ role → architect"]);
+    expect(entries.some((e) => e.role === "user" && e.text === "switch me")).toBe(true);
+  });
+
   it("renders a null role as none", () => {
     const entries = deriveTranscript({
       messages: [userMsg],

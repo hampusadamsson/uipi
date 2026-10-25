@@ -19,6 +19,13 @@ class FakeServer {
   };
   sessionFile = "/home/u/.pi/agent/sessions/--proj--/abc.jsonl";
   sessionId = "sess-1";
+  /** runtime state the fake server paints into attach / sessionState */
+  role: string | null = null;
+  model: { provider: string; modelId: string } | null = { provider: "p", modelId: "m" };
+  thinkingLevel = "medium";
+  tools = ["read"];
+  statuses: Record<string, string> = {};
+  private roleSwitchSeq = 0;
 
   respond(socket: FakeSocket, msg: Record<string, unknown>): void {
     const reply = (m: S2C) =>
@@ -59,9 +66,12 @@ class FakeServer {
           type: "proto.attached",
           sessionId: this.sessionId,
           messages: [{ role: "user", id: "u0", content: "earlier" }],
-          model: { provider: "p", modelId: "m" },
-          thinkingLevel: "medium",
-          tools: ["read"],
+          model: this.model,
+          thinkingLevel: this.thinkingLevel,
+          tools: this.tools,
+          role: this.role,
+          commands: [{ name: "role", description: "Switch agent role" }],
+          statuses: this.statuses,
           cwd: "/proj",
           isStreaming: false,
           steering: [],
@@ -69,6 +79,44 @@ class FakeServer {
           sessionFile: this.sessionFile,
         } as S2C);
         break;
+      case "proto.setRole": {
+        // real server: translate into the roles extension's own slash command,
+        // which appends a `role-switch` entry (a pi.evt) and paints its status
+        // slot; then re-read *all* runtime state from history and broadcast it.
+        const role = (msg.role ?? null) as string | null;
+        this.role = role;
+        this.statuses = role ? { role: `◆ ${role}` } : {};
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: {
+            type: "entry_appended",
+            entry: {
+              type: "custom",
+              customType: "role-switch",
+              data: { role },
+              id: `rs-${++this.roleSwitchSeq}`,
+            },
+          },
+        });
+        socket.push({ type: "proto.statuses", sessionId: this.sessionId, statuses: this.statuses });
+        if (role) {
+          // a role is an opinionated preset: model / thinking / tools move too
+          this.model = { provider: "p", modelId: "m2" };
+          this.thinkingLevel = "high";
+          this.tools = ["read", "bash", "edit"];
+        }
+        socket.push({
+          type: "proto.sessionState",
+          sessionId: this.sessionId,
+          role,
+          model: this.model,
+          thinkingLevel: this.thinkingLevel,
+          tools: this.tools,
+          commands: [{ name: "role", description: "Switch agent role" }],
+        } as S2C);
+        break;
+      }
       case "proto.roleNames":
         // the real server answers from `/role`'s argument completions, reserved
         // words already filtered out
@@ -380,5 +428,167 @@ describe("UipiClient headless", () => {
     });
     const compaction = entries.find((e) => e.kind === "compaction");
     expect(compaction?.text).toContain("condensed history");
+  });
+
+  // A role switch is one server round-trip that changes *everything* about the
+  // session: role, model, thinking level and tool set. Before `sessionState`
+  // folded those together, a switch left the header painting the old model /
+  // thinking / tools (the deleted `proto.modelSet` only carried the model).
+  // This drives the whole path headlessly: attach → setRole → one message.
+  describe("role switch end to end", () => {
+    it("attach reflects the session's role", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+      expect(client.active?.role).toBe("work");
+      expect(client.active?.tools).toEqual(["read"]);
+      expect(client.active?.thinkingLevel).toBe("medium");
+    });
+
+    it("one sessionState updates role, model, thinkingLevel and tools together", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+      expect(client.active).toMatchObject({
+        role: "work",
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "medium",
+        tools: ["read"],
+      });
+
+      const sent: Record<string, unknown>[] = [];
+      const socket = server.sockets[0];
+      const originalSend = socket.send.bind(socket);
+      socket.send = (d: string) => {
+        sent.push(JSON.parse(d));
+        originalSend(d);
+      };
+
+      // the picker's only write path: no local echo, the server is the truth
+      client.cmd({ type: "proto.setRole", sessionId: "sess-1", role: "architect" });
+      await flush();
+      await flush();
+
+      expect(sent.find((m) => m.type === "proto.setRole")).toEqual({
+        type: "proto.setRole",
+        sessionId: "sess-1",
+        role: "architect",
+      });
+
+      // all four fields come from the same message — no stale header state
+      expect(client.active?.role).toBe("architect");
+      expect(client.active?.model).toEqual({ provider: "p", modelId: "m2" });
+      expect(client.active?.thinkingLevel).toBe("high");
+      expect(client.active?.tools).toEqual(["read", "bash", "edit"]);
+      expect(client.effectiveModel("sess-1")).toEqual({ provider: "p", modelId: "m2" });
+    });
+
+    it("a switch also clears a stale optimistic model echo from an earlier pick", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+
+      // an optimistic pick the server never confirmed (e.g. it was refused)
+      client.cmd({ type: "pi.setModel", sessionId: "sess-1", provider: "p", modelId: "m9" });
+      expect(client.pendingModel("sess-1")).toEqual({ provider: "p", modelId: "m9" });
+      expect(client.effectiveModel("sess-1")).toEqual({ provider: "p", modelId: "m9" });
+
+      // the role switch's sessionState is authoritative for the model too
+      client.cmd({ type: "proto.setRole", sessionId: "sess-1", role: "architect" });
+      await flush();
+      await flush();
+
+      expect(client.pendingModel("sess-1")).toBeUndefined();
+      expect(client.effectiveModel("sess-1")).toEqual({ provider: "p", modelId: "m2" });
+    });
+
+    it("renders ◆ role → architect after the extension's entry_appended", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+      client.cmd({ type: "proto.setRole", sessionId: "sess-1", role: "architect" });
+      await flush();
+      await flush();
+
+      const events = client.liveEvents("sess-1") as { type?: string; entry?: unknown }[];
+      expect(events.some((e) => e.type === "entry_appended")).toBe(true);
+
+      const entries = deriveTranscript({
+        messages: client.active!.messages,
+        events,
+      });
+      const system = entries.filter((e) => e.kind === "system");
+      expect(system).toHaveLength(1);
+      expect(system[0].text).toBe("◆ role → architect");
+    });
+
+    it("a sessionState with role: null clears the role (chip) state", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+      expect(client.active?.role).toBe("work");
+
+      const sent: Record<string, unknown>[] = [];
+      const socket = server.sockets[0];
+      const originalSend = socket.send.bind(socket);
+      socket.send = (d: string) => {
+        sent.push(JSON.parse(d));
+        originalSend(d);
+      };
+
+      // the picker's `(none)` row: the null must survive the wire as a null,
+      // not be dropped (undefined) or stringified
+      client.cmd({ type: "proto.setRole", sessionId: "sess-1", role: null });
+      await flush();
+      await flush();
+
+      expect(sent.find((m) => m.type === "proto.setRole")).toEqual({
+        type: "proto.setRole",
+        sessionId: "sess-1",
+        role: null,
+      });
+      expect(client.active?.role).toBeNull();
+    });
+
+    it("an extension refusal paints the role the session has, not the requested one", async () => {
+      server.role = "work";
+      await client.newSession("/proj");
+      // the extension refuses ("Agent busy") and re-reads history: same role
+      server.sockets[0].deliver({
+        type: "proto.sessionState",
+        sessionId: "sess-1",
+        role: "work",
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "medium",
+        tools: ["read"],
+        commands: [],
+      } as S2C);
+      await flush();
+      expect(client.active?.role).toBe("work");
+      expect(client.active?.model).toEqual({ provider: "p", modelId: "m" });
+      expect(client.active?.thinkingLevel).toBe("medium");
+      expect(client.active?.tools).toEqual(["read"]);
+    });
+
+    it("a proto.statuses message carries the extension's ◆ <role> slot", async () => {
+      server.role = "work";
+      server.statuses = { role: "◆ work" };
+      await client.newSession("/proj");
+      // the attach snapshot already carries the extension's status slots
+      expect(client.active?.statuses).toEqual({ role: "◆ work" });
+
+      server.sockets[0].deliver({
+        type: "proto.statuses",
+        sessionId: "sess-1",
+        statuses: { role: "◆ work", ctx: "42%" },
+      } as S2C);
+      await flush();
+
+      expect(client.active?.statuses).toEqual({ role: "◆ work", ctx: "42%" });
+
+      // a cleared slot disappears from the map (the map is replaced wholesale)
+      server.sockets[0].deliver({
+        type: "proto.statuses",
+        sessionId: "sess-1",
+        statuses: {},
+      } as S2C);
+      await flush();
+      expect(client.active?.statuses).toEqual({});
+    });
   });
 });

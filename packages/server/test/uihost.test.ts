@@ -37,6 +37,48 @@ describe("UiHost theme", () => {
   });
 });
 
+describe("UiHost status slots", () => {
+  it("broadcasts proto.statuses when the roles extension paints its ◆ slot", () => {
+    const { h, frames } = host();
+    // what the roles extension does: ctx.ui.setStatus("role", theme.fg("accent", `◆ work`))
+    h.ui.setStatus("role", h.ui.theme.fg("accent", "◆ work"));
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toEqual({
+      type: "proto.statuses",
+      sessionId: "sess",
+      statuses: { role: "◆ work" },
+    });
+    expect(h.statuses()).toEqual({ role: "◆ work" });
+  });
+
+  it("replaces the whole map, so a second slot does not drop the first", () => {
+    const { h, frames } = host();
+    h.ui.setStatus("role", "◆ work");
+    h.ui.setStatus("ctx", "42%");
+    expect(frames.at(-1)).toMatchObject({ statuses: { role: "◆ work", ctx: "42%" } });
+  });
+
+  it("setStatus(key, undefined) clears the slot and re-broadcasts", () => {
+    const { h, frames } = host();
+    h.ui.setStatus("role", "◆ work");
+    h.ui.setStatus("role", undefined as never);
+    expect(frames.at(-1)).toMatchObject({ statuses: {} });
+
+    // clearing an absent slot is not worth a frame
+    const before = frames.length;
+    h.ui.setStatus("role", undefined as never);
+    expect(frames.length).toBe(before);
+  });
+
+  it("an unchanged value is not re-broadcast", () => {
+    const { h, frames } = host();
+    h.ui.setStatus("role", "◆ work");
+    h.ui.setStatus("role", "◆ work");
+    expect(frames).toHaveLength(1);
+  });
+});
+
 describe("UiHost notifications", () => {
   it("frames a notification to the client", () => {
     const { h, frames } = host();

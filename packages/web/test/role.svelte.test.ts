@@ -131,6 +131,24 @@ describe("sidebar role badge", () => {
     sync(ui);
     expect(ui.sessions.map(sessionRoleText)).toEqual(["architect", null]);
   });
+
+  // `hidden: true` in roles.json is a *picker* convenience (keep the list short),
+  // never a fact filter. The sidebar names the role the session actually has, so
+  // a hidden role must render exactly like a visible one.
+  it("renders a hidden role such as retriever", () => {
+    const { ui, c } = setup();
+    (c as unknown as { sessions: SessionSummary[] }).sessions = [
+      summary({ sessionId: "s1", live: false, role: "retriever" }),
+      summary({ sessionId: "s2", sessionFile: "/tmp/s2.jsonl", live: true, role: "local" }),
+    ];
+    sync(ui);
+    expect(ui.sessions.map(sessionRoleText)).toEqual(["retriever", "local"]);
+  });
+
+  it("a blank role name renders nothing rather than an empty badge", () => {
+    expect(sessionRoleText(summary({ role: "" }))).toBeNull();
+    expect(sessionRoleText(summary({ role: "  " }))).toBeNull();
+  });
 });
 
 describe("role picker data", () => {
