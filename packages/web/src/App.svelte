@@ -7,6 +7,7 @@
   import UiEventModal from "./components/UiEventModal.svelte";
   import ModelPicker from "./components/ModelPicker.svelte";
   import ThinkingPicker from "./components/ThinkingPicker.svelte";
+  import RolePicker from "./components/RolePicker.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Toaster } from "$lib/components/ui/sonner/index.js";
@@ -88,6 +89,7 @@
           </Badge>
         {/if}
         <div class="flex-1"></div>
+        <RolePicker sessionId={attach.sessionId} />
         <ThinkingPicker sessionId={attach.sessionId} />
         <ModelPicker sessionId={attach.sessionId} />
         {#if run !== "idle"}

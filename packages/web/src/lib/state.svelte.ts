@@ -16,6 +16,16 @@ import type { C2S, ModelInfo, SessionSummary, UiEvent } from "@uipi/protocol";
 export type { RunState, TranscriptEntry, AttachedSession };
 
 /**
+ * Sidebar badge text for a session: the role name, or null when roleless.
+ * Reads `SessionSummary.role`, so it works for sessions the server has never
+ * materialized (archived rows) as well as live ones.
+ */
+export function sessionRoleText(s: SessionSummary): string | null {
+  const role = s.role;
+  return typeof role === "string" && role.trim() !== "" ? role : null;
+}
+
+/**
  * Svelte adapter over the UI-agnostic {@link UipiClient}.
  *
  * All protocol, reducer and command logic lives in `@uipi/client`; this class
@@ -82,6 +92,38 @@ export class UiState {
       (this.attached.get(sessionId)?.model as { provider: string; modelId: string } | null) ??
       undefined
     );
+  }
+
+  /** Active role of an attached session, or null when roleless. */
+  roleOf(sessionId: string | null): string | null {
+    if (!sessionId) return null;
+    const role = this.attached.get(sessionId)?.role;
+    return typeof role === "string" && role.trim() !== "" ? role : null;
+  }
+
+  /** Exactly what the header chip renders (`◆ <role>`), or null for nothing. */
+  roleChip(sessionId: string | null): string | null {
+    const role = this.roleOf(sessionId);
+    return role ? `◆ ${role}` : null;
+  }
+
+  /** Discoverable slash commands (extension, prompt templates, skills) of a session. */
+  commandsOf(sessionId: string | null): { name: string; description?: string }[] {
+    if (!sessionId) return [];
+    return this.attached.get(sessionId)?.commands ?? [];
+  }
+
+  /**
+   * Slash-command autocomplete items: every discovered command with a leading
+   * "/", plus the two the web UI itself implements (`/new`, `/compact`). Skill
+   * and prompt-template entries pass through untouched — no role filtering.
+   */
+  slashItems(sessionId: string | null): string[] {
+    const discovered = this.commandsOf(sessionId).map((c) => `/${c.name}`);
+    // `/new` is intercepted client-side, `/compact` maps to pi.compact: neither
+    // is a registered extension command, so the server cannot advertise them.
+    const all = [...discovered, "/compact", "/new"];
+    return all.filter((name, i) => all.indexOf(name) === i).sort();
   }
 
   transcript(sessionId: string): TranscriptEntry[] {

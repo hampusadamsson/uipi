@@ -27,7 +27,7 @@
   const steering = $derived(attach?.steering ?? []);
   const followUp = $derived(attach?.followUp ?? []);
 
-  const slashItems = $derived(["/compact", "/new"]);
+  const slashItems = $derived(ui.slashItems(sessionId));
 
   function textOf(q: unknown): string {
     const s =

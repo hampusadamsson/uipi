@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ui } from "$lib/state.svelte";
+  import { ui, sessionRoleText } from "$lib/state.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
 
@@ -40,6 +40,7 @@
   {/if}
   <div class="flex-1 overflow-y-auto overscroll-contain p-1">
     {#each ui.sessions as s (s.sessionFile)}
+      {@const role = sessionRoleText(s)}
       <button
         class="w-full min-h-11 text-left rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground {ui.activeId ===
         s.sessionId
@@ -72,6 +73,9 @@
         <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
           <span class="shrink-0">{fmtDate(s.mtime)}</span>
           <span class="truncate">{s.cwd}</span>
+          {#if role}
+            <span class="shrink-0 text-[10px] opacity-70" title="role">◆ {role}</span>
+          {/if}
           {#if ui.contextTokens.get(s.sessionId)}
             <span class="shrink-0"
               >· {Math.round((ui.contextTokens.get(s.sessionId) ?? 0) / 1000)}k ctx</span

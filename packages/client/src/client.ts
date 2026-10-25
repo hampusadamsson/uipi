@@ -18,6 +18,10 @@ export interface AttachedSession {
   tools: string[];
   /** active role name, or null when roleless */
   role: string | null;
+  /** discoverable slash commands (extension, prompt templates, skills) */
+  commands: { name: string; description?: string }[];
+  /** extension status slots (key → text) */
+  statuses: Record<string, string>;
   isStreaming: boolean;
   steering: unknown[];
   followUp: unknown[];
@@ -333,9 +337,16 @@ export class UipiClient {
             model: m.model,
             thinkingLevel: m.thinkingLevel,
             tools: m.tools,
+            role: m.role,
+            commands: m.commands,
           });
         }
         this.pendingModelById.delete(m.sessionId);
+        break;
+      }
+      case "proto.statuses": {
+        const a = this.attachedSessions.get(m.sessionId);
+        if (a) this.attachedSessions.set(m.sessionId, { ...a, statuses: m.statuses });
         break;
       }
       case "proto.queues": {
