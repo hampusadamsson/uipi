@@ -75,40 +75,59 @@ thinking level and tool set after a change.
 
 ### Work order
 
-1. [ ] **Extension patch** (separate repo `~/.pi/agent`): `session_start` always
+1. [x] **Extension patch** (separate repo `~/.pi/agent`): `session_start` always
        `appendEntry("role-switch", { role })`, including the quiet
-       `config.defaultRole` path. Commit there.
-2. [ ] **Protocol:** add `proto.setRole`, `proto.sessionState`,
+       `config.defaultRole` path. Commit there — landed as 18f1004 in that repo.
+2. [x] **Protocol:** add `proto.setRole`, `proto.sessionState`,
        `proto.statuses`; add `role` / `commands` / `statuses` to
        `proto.attached`; delete `proto.modelSet`.
-3. [ ] **Server — `setRole`:** translate to `session.prompt("/role <name>")`,
+3. [x] **Server — `setRole`:** translate to `session.prompt("/role <name>")`,
        `"/role none"` for null, `"/role reload"` first when reload is set.
        Unknown role → `proto.error`.
-4. [ ] **Server — busy dispatch:** text matching a registered extension command
+4. [x] **Server — busy dispatch:** text matching a registered extension command
        (or `/compact`) goes through `prompt()` immediately even mid-run;
        everything else queues as a follow-up. This is what makes `/role` usable
        while the agent is thinking and lets the extension's own busy-refusal
        produce the toast.
-5. [ ] **Server — builtin refusal:** refuse pi builtins with no web equivalent
+5. [x] **Server — builtin refusal:** refuse pi builtins with no web equivalent
        instead of feeding them to the model as literal text.
-6. [ ] **Server — role mirror:** active role = last `role-switch` entry in
+6. [x] **Server — role mirror:** active role = last `role-switch` entry in
        session history, falling back to `roles.json → active`. Display-only,
        fails soft (blank rather than guessed).
-7. [ ] **Server — command discovery:** `extensionRunner.getCommands()` +
+7. [x] **Server — command discovery:** `extensionRunner.getRegisteredCommands()` +
        `promptTemplates` + skills into `attached` / `sessionState`.
-8. [ ] **Server — sidebar badges:** join role into `SessionSummary` by replaying
+8. [x] **Server — sidebar badges:** join role into `SessionSummary` by replaying
        `role-switch` from each JSONL; cache by `(path, mtimeMs, size)`; read in
        parallel off the request path.
-9. [ ] **Server — `setStatus` capture:** stop discarding it in `UiHost`;
+9. [x] **Server — `setStatus` capture:** stop discarding it in `UiHost`;
        broadcast `proto.statuses`. Generic extension surface, not the role's
        source of truth.
-10. [ ] **Client:** `sessionState` reducer (replacing `modelSet`), `role` on
+10. [x] **Client:** `sessionState` reducer (replacing `modelSet`), `role` on
         `AttachedSession`, entry-renderer registry + startup-row suppression in
         `deriveTranscript`.
-11. [ ] **Web:** header chip + popover picker with `(none)` and reload; sidebar
+11. [x] **Web:** header chip + popover picker with `(none)` and reload; sidebar
         role badge; slash discovery replacing the hardcoded list.
-12. [ ] **Tests** at every existing seam: server `setRole` → `prompt("/role x")` + state broadcast; client `sessionState` mapping; transcript suppression
+12. [x] **Tests** at every existing seam: server `setRole` → `prompt("/role x")` + state broadcast; client `sessionState` mapping; transcript suppression
         rule; headless e2e (`client.test.ts`) extended with a role switch.
+
+### Shipped with roles (v1.1)
+
+- Protocol: `proto.setRole`, `proto.sessionState` (replaces `proto.modelSet`),
+  `proto.statuses`, `proto.roleNames`; `role`/`commands`/`statuses` on
+  `proto.attached`; `role` on `SessionSummary`; `id` plus optional `origin` on
+  every UI event
+- Extension patch: `session_start` always records the starting role
+- Server: semantic role switching through the extension, extension commands
+  dispatched immediately while the agent is busy, pi builtins refused instead of
+  reaching the model, role mirrored from session history, command discovery,
+  per-session role badges with an mtime cache, `setStatus` slots broadcast
+- Client + web: `◆ role` chip, role picker listing real names from `/role`
+  completions, sidebar role badge, slash completion from real discovery,
+  `◆ role → architect` transcript row with startup suppression
+- Fix: UI events drained by id instead of object identity, so notifications
+  stopped re-firing on every state change; role-switch confirmations suppressed
+  by origin tag; identical notifications collapse within `NOTIFY_DEDUPE_MS`
+- 183 tests across 19 files
 
 ### Known limits (accepted)
 
@@ -116,8 +135,9 @@ thinking level and tool set after a change.
 - Picker is stale after a hand-edit of `roles.json` until the reload action.
 - No cycling shortcut — the TUI's `ctrl+h` has no browser equivalent.
 - Role config stays hand-edited JSON in a git-tracked repo.
-- Without the extension patch, a fresh session's chip stays blank until the
-  first switch (the `active` fallback covers it).
+- The extension patch has shipped, so fresh sessions record their starting role.
+  The `roles.json → active` fallback remains for sessions recorded before the
+  patch (entries with no role-switch history).
 
 ## Next (v2, not yet designed)
 
