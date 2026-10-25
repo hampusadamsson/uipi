@@ -1,6 +1,3 @@
-import { ui } from "./state.svelte.js";
-import type { S2C } from "@uipi/protocol";
-
 /**
  * Rebuild the transcript view model from pi session events after attachment.
  * Strategy: maintain a rolling projection keyed by message id when possible,
@@ -34,7 +31,7 @@ export function deriveTranscript(attach: {
   const out: TranscriptEntry[] = [];
   // 1. snapshot messages (history at attach time)
   for (const m of attach.messages ?? []) {
-    out.push(fromMessage(m));
+    out.push(fromMessage(m, `snap${out.length}`));
   }
   // 2. optimistic user messages only while the server hasn't echoed any user message yet
   const hasUserEcho = out.some((e) => e.role === "user");
@@ -73,7 +70,7 @@ function textOf(m: unknown): string {
   return "";
 }
 
-function fromMessage(m: unknown): TranscriptEntry {
+function fromMessage(m: unknown, fallbackId: string): TranscriptEntry {
   const mm = m as { role?: string; id?: string };
   return {
     kind: "message",
@@ -83,7 +80,7 @@ function fromMessage(m: unknown): TranscriptEntry {
     thinkingActive: false,
     toolCalls: [],
     raw: m,
-    id: mm.id ?? Math.random().toString(36).slice(2),
+    id: mm.id ?? fallbackId,
   };
 }
 
@@ -92,7 +89,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
   if (!ev || typeof ev !== "object") return;
   switch (ev.type) {
     case "message_start": {
-      const msg = fromMessage(ev.message);
+      const msg = fromMessage(ev.message, `msg${out.length}`);
       // dedupe: snapshot may already contain this message (e.g. replayed history)
       if (!out.some((e) => e.id === msg.id)) out.push(msg);
       break;
@@ -114,7 +111,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
           last.text = textOf(ev.message);
         }
       } else {
-        const m = fromMessage(ev.message);
+        const m = fromMessage(ev.message, `msg${out.length}`);
         if (m.role === "assistant" && ae.type === "thinking_delta") {
           m.thinking = ae.delta || "";
           m.thinkingActive = true;
@@ -130,7 +127,6 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
         last.raw = ev.message;
         last.thinkingActive = false;
       }
-      maybeUpdateToolCall(last, ev);
       break;
     }
     case "tool_execution_start":
@@ -150,10 +146,6 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
     default:
       break;
   }
-}
-
-function maybeUpdateToolCall(_last: TranscriptEntry | undefined, _ev: unknown): void {
-  /* tool call bodies live in tool_execution_* events */
 }
 
 function upsertToolCall(out: TranscriptEntry[], ev: Record<string, unknown>): void {
@@ -199,5 +191,3 @@ function coalesce(entries: TranscriptEntry[]): TranscriptEntry[] {
   // drop empty assistant filler entries except those with toolCalls
   return entries.filter((e) => e.kind !== "message" || e.text.length > 0 || e.toolCalls.length > 0);
 }
-
-export { ui };

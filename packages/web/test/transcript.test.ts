@@ -20,6 +20,14 @@ const finalA = {
 };
 
 describe("deriveTranscript", () => {
+  it("produces deterministic ids for messages without one", () => {
+    const noId = { role: "user", content: [{ type: "text", text: "hi" }] };
+    const a = deriveTranscript({ messages: [noId], events: [] });
+    const b = deriveTranscript({ messages: [noId], events: [] });
+    expect(a[0].id).toBe(b[0].id);
+    expect(a[0].id).not.toBe("");
+  });
+
   it("shows streamed text from message_update events", () => {
     const entries = deriveTranscript({
       messages: [userMsg],
