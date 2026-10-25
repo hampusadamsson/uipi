@@ -82,6 +82,11 @@ export class SessionService {
         this.detach(msg.sessionId, _sub, reply);
         break;
       }
+      case "proto.setRole": {
+        // a session command that happens to live in the proto.* namespace
+        await this.handleSessionCmd(msg, reply);
+        break;
+      }
       case "proto/listModels": {
         const first = [...this.live.values()][0];
         if (!first) {
@@ -131,6 +136,35 @@ export class SessionService {
       case "pi.abort":
         await s.session.abort();
         break;
+      case "proto.setRole": {
+        try {
+          // The pi roles extension owns switching; translate the request into its
+          // own slash command and let the extension be the authority on role names.
+          if (msg.reload) await s.session.prompt("/role reload");
+          await s.session.prompt(msg.role === null ? "/role none" : `/role ${msg.role}`);
+          // echo the new state to ALL subscribers of this session
+          const role = msg.role;
+          for (const s2 of s.subscribers.keys()) {
+            try {
+              s2.send({
+                type: "proto.sessionState",
+                sessionId: s.id,
+                role,
+                model: sessionModelRef(s.session),
+                thinkingLevel: String(s.session.thinkingLevel ?? ""),
+                tools: [...s.session.getActiveToolNames()],
+                // commands: filled in by command discovery
+                commands: [],
+              });
+            } catch {
+              /* dead */
+            }
+          }
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
       case "pi.setModel": {
         try {
           const model = s.session.modelRuntime.getModel(msg.provider, msg.modelId);
