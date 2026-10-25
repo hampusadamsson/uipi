@@ -112,6 +112,33 @@ export class SessionService {
     }
     switch (msg.type) {
       case "pi.prompt": {
+        // pi runs extension commands *immediately, even during streaming* (see
+        // AgentSession.prompt → _tryExecuteExtensionCommand), and that is what the
+        // TUI relies on for things like `/role architect` mid-run. followUp()
+        // refuses them outright (_throwIfExtensionCommand), so routing a slash
+        // command through the queue would fail instead of switching. Bypass the
+        // queue for registered extension commands and `/compact`.
+        if (msg.text.startsWith("/")) {
+          const name = slashCommandName(msg.text);
+          if (name === "compact") {
+            // uipi implements /compact itself (mapped to pi.compact); never feed
+            // the literal text to the model or queue it.
+            try {
+              await s.session.compact();
+            } catch (e) {
+              reply({ type: "proto.error", message: String(e) });
+            }
+            break;
+          }
+          if (isExtensionCommand(s.session, name)) {
+            try {
+              await s.session.prompt(msg.text);
+            } catch (e) {
+              reply({ type: "proto.error", message: String(e) });
+            }
+            break;
+          }
+        }
         // Never reject a prompt just because the agent is busy: queue it instead.
         // A plain prompt submitted mid-run is a follow-up (wait for the current
         // turn), which is what users expect from "just send it".
@@ -519,6 +546,33 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     followUp: [...live.session.getFollowUpMessages()],
     sessionFile: live.sessionFile ?? null,
   } satisfies S2C;
+}
+
+/** Slash command name parsed exactly as pi does: text after "/" up to the first space. */
+function slashCommandName(text: string): string {
+  const spaceIndex = text.indexOf(" ");
+  return spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+}
+
+/** The subset of ExtensionRunner we need, so fakes/tests can omit it. */
+type CommandListProvider = {
+  getRegisteredCommands?: () => { name: string; invocationName?: string }[];
+};
+
+/**
+ * Whether `name` is a command registered by a loaded pi extension.
+ * pi itself resolves commands by `invocationName` (ExtensionRunner.getCommand),
+ * which falls back to the plain `name` for a single registration.
+ */
+function isExtensionCommand(session: AgentSession, name: string): boolean {
+  try {
+    const runner = session.extensionRunner as unknown as CommandListProvider | undefined;
+    const commands = runner?.getRegisteredCommands?.() ?? [];
+    return commands.some((command) => (command.invocationName ?? command.name) === name);
+  } catch {
+    // a broken extension runner must not break ordinary prompting
+    return false;
+  }
 }
 
 function sessionModelRef(session: AgentSession) {
