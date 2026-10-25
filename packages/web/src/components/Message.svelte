@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TranscriptEntry } from "$lib/transcript.js";
+  import type { TranscriptEntry } from "@uipi/client";
   import ToolCall from "./ToolCall.svelte";
   import { Card, CardContent } from "$lib/components/ui/card/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";

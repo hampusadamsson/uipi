@@ -1,0 +1,22 @@
+{
+  "name": "@uipi/client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@uipi/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6",
+    "vitest": "^2"
+  }
+}

@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@uipi/client": "workspace:*",
     "@uipi/protocol": "workspace:*",
     "bits-ui": "^2.20.2",
     "cn": "^0.5.0"

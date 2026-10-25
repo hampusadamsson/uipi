@@ -1,274 +1,196 @@
 import { SvelteMap } from "svelte/reactivity";
-import { Conn } from "./conn.js";
-import { hash8, hashFromPath, pathFor } from "./route.js";
-import type { Attachment, C2S, ModelInfo, SessionSummary, S2C, UiEvent } from "@uipi/protocol";
+import {
+  Conn,
+  UipiClient,
+  pathFor,
+  hash8,
+  hashFromPath,
+  type AttachedSession,
+  type RunState,
+  type TranscriptEntry,
+  type WebSocketLike,
+  deriveTranscript,
+} from "@uipi/client";
+import type { C2S, ModelInfo, SessionSummary, UiEvent } from "@uipi/protocol";
 
-export type RunState = "idle" | "thinking" | "streaming" | "tooling";
+export type { RunState, TranscriptEntry, AttachedSession };
 
-/** Minimal global app state via runes-compatible class. */
+/**
+ * Svelte adapter over the UI-agnostic {@link UipiClient}.
+ *
+ * All protocol, reducer and command logic lives in `@uipi/client`; this class
+ * only mirrors client state into Svelte reactivity (runes + SvelteMap) so
+ * components re-render on change. A TUI would adapt the same client to its own
+ * render loop instead — no protocol or reducer logic is duplicated there.
+ */
 export class UiState {
-  conn = new Conn();
+  readonly client: UipiClient;
+
   connected = $state(false);
   sessions = $state<SessionSummary[]>([]);
   recentDirs = $state<string[]>([]);
   models = $state<ModelInfo[]>([]);
-  /** sessionId -> attachment */
-  attached = new SvelteMap<string, Attachment>();
   activeId = $state<string | null>(null);
   uiEvents = $state<UiEvent[]>([]);
   error = $state<string | null>(null);
+  /** transient UI-only flag: the "new session" modal is open */
   wantNew = $state(false);
-  /** sessionId -> live run state */
+
+  attached = new SvelteMap<string, AttachedSession>();
   runState = new SvelteMap<string, RunState>();
-  /** sessionId -> live pi events (reactive; pushes trigger rerenders) */
   liveEvents = new SvelteMap<string, unknown[]>();
-  /** sessionId -> user messages sent locally (reactive; shown instantly) */
   sentMessages = new SvelteMap<string, string[]>();
-  /** sessionId -> latest context tokens (input+cacheRead+cacheWrite from message_end) */
   contextTokens = new SvelteMap<string, number>();
-  /** sessionId -> model pick echoed locally before proto.modelSet settles */
   pendingModel = new SvelteMap<string, { provider: string; modelId: string }>();
 
-  init() {
-    this.conn.onOpen = () => {
-      this.connected = true;
-      void this.hydrateFromUrl();
-      void this.conn
-        .request<S2C & { dirs: { path: string }[] }>({ type: "proto/recentDirs" })
-        .then((m) => (this.recentDirs = m.dirs.map((d) => d.path)))
-        .catch(() => {});
-      void this.refreshModels();
-    };
-    this.conn.onClose = () => {
-      this.connected = false;
-    };
-    this.conn.onMessage = (m) => this.handle(m);
-    window.addEventListener("popstate", () => void this.hydrateFromUrl());
-    this.conn.connect();
+  constructor() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    this.client = new UipiClient(
+      new Conn({
+        url: `${proto}://${location.host}/ws`,
+        createSocket: (url) => new WebSocket(url) as unknown as WebSocketLike,
+      }),
+    );
+    this.client.onChange(() => this.sync());
   }
+
+  init() {
+    window.addEventListener("popstate", () => void this.hydrateFromUrl());
+    this.client.attach();
+  }
+
+  // ------------------------------------------------------- reads over client
 
   stateOf(id: string | null): RunState {
-    if (!id) return "idle";
-    return this.runState.get(id) ?? "idle";
+    return this.client.stateOf(id);
   }
 
+  /** Optimistic model echo, else the attached model. */
+  modelOf(sessionId: string | null): { provider: string; modelId: string } | null | undefined {
+    return sessionId ? this.client.effectiveModel(sessionId) : undefined;
+  }
+
+  transcript(sessionId: string): TranscriptEntry[] {
+    const attach = this.attached.get(sessionId);
+    if (!attach) return [];
+    return deriveTranscript({
+      messages: attach.messages ?? [],
+      events: this.liveEvents.get(sessionId) ?? [],
+      sentMessages: this.sentMessages.get(sessionId) ?? [],
+    });
+  }
+
+  // ------------------------------------------------------------- commands
+
   async refreshSessions() {
-    try {
-      const m = await this.conn.request<S2C & { sessions: SessionSummary[] }>({
-        type: "proto.listSessions",
-      });
-      this.sessions = m.sessions;
-    } catch (e) {
-      this.error = String(e);
-    }
+    await this.client.refreshSessions();
   }
 
   async refreshModels() {
-    try {
-      const m = await this.conn.request<S2C & { models: ModelInfo[] }>({
-        type: "proto/listModels",
-      });
-      this.models = m.models;
-    } catch {
-      /* no live session yet */
-    }
+    await this.client.refreshModels();
   }
 
   async newSession(cwd: string, agentDir?: string) {
-    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
-      type: "proto.newSession",
-      cwd,
-      agentDir,
-    });
-    await this.onAttached(m);
-    await this.refreshSessions();
+    await this.client.newSession(cwd, agentDir);
+    this.syncUrl();
   }
 
-  async openSession(sessionFile: string, pushUrl = true) {
-    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
-      type: "proto.openSession",
-      sessionFilePath: sessionFile,
-    });
-    await this.onAttached(m, pushUrl);
+  async openSession(sessionFile: string) {
+    await this.client.openSession(sessionFile);
+    this.syncUrl();
   }
 
   async attach(sessionId: string) {
-    const m = await this.conn.request<S2C & { type: "proto.attached"; sessionId: string }>({
-      type: "proto.attach",
-      sessionId,
-    });
-    await this.onAttached(m);
+    await this.client.attachTo(sessionId);
+    this.syncUrl();
   }
 
-  private async onAttached(m: S2C & { type: "proto.attached" }, pushUrl = true) {
-    const a = m as unknown as Attachment;
-    a.events = [];
-    this.attached.set(m.sessionId, a);
-    this.liveEvents.set(m.sessionId, []);
-    this.sentMessages.set(m.sessionId, []);
-    this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
-    this.activeId = m.sessionId;
-    if (pushUrl) this.syncUrl(m.sessionFile ?? null);
-    void this.refreshModels();
-    await this.refreshSessions();
+  detach(id: string) {
+    this.client.detach(id);
+    this.syncUrl();
   }
 
-  // ---- URL sync: /s/<hash8-of-session-file> survives reload ----
+  cmd(m: C2S): void {
+    this.client.cmd(m);
+  }
 
-  private syncUrl(sessionFile: string | null): void {
-    const url = pathFor(sessionFile);
+  sendPrompt(sessionId: string, text: string): void {
+    this.client.sendPrompt(sessionId, text);
+  }
+
+  /** Present and clear a UI event (extension dialog/select/notification). */
+  consumeUiEvent(event: UiEvent): void {
+    this.client.consumeUiEvent(event);
+  }
+
+  respondUi(
+    req:
+      | { kind: "select"; sessionId: string; selectId: string }
+      | { kind: "dialog"; sessionId: string; dialogId: string },
+    value: unknown,
+  ): void {
+    this.client.respondUi(req, value);
+  }
+
+  clearError(): void {
+    this.client.clearError();
+  }
+
+  // ------------------------------------------------------------- url sync
+
+  private syncUrl(): void {
+    const url = this.client.activePath();
     if (location.pathname !== url) history.pushState(null, "", url);
   }
 
-  /** after sessions load, if the URL points at a session, re-open it */
+  /** Restore the session named by the current URL, if any. */
   async hydrateFromUrl(): Promise<void> {
-    const hash = hashFromPath(location.pathname);
-    if (!hash) {
-      void this.refreshSessions();
+    const opened = await this.client.openPath(location.pathname);
+    if (opened) {
+      this.syncUrl();
       return;
     }
-    await this.refreshSessions();
-    const hit = this.sessions.find((s) => hash8(s.sessionFile) === hash);
-    if (hit) {
-      await this.openSession(hit.sessionFile, false);
-    } else {
-      // e.g. a brand-new session whose file has no messages yet — just land on the empty view
+    if (hashFromPath(location.pathname)) {
+      // stale or not-yet-persisted session — land on the default view
       history.replaceState(null, "", "/");
     }
   }
 
-  detach(id: string) {
-    this.conn.sendFire({ type: "proto.detach", sessionId: id });
-    this.attached.delete(id);
-    this.runState.delete(id);
-    this.liveEvents.delete(id);
-    this.sentMessages.delete(id);
-    if (this.activeId === id) {
-      this.activeId = [...this.attached.keys()][0] ?? null;
-      this.syncUrl(null);
+  /** Exposed for tests / deep links: `/s/<hash>` for a session file. */
+  static pathFor(sessionFile: string | null | undefined): string {
+    return pathFor(sessionFile);
+  }
+
+  static hash8(path: string): string {
+    return hash8(path);
+  }
+
+  // ------------------------------------------------ client → svelte mirror
+
+  /** Mirror the framework-agnostic client state into Svelte reactivity. */
+  private sync(): void {
+    const c = this.client;
+    this.connected = c.connected;
+    this.sessions = c.sessions;
+    this.recentDirs = c.recentDirs;
+    this.models = c.models;
+    this.activeId = c.activeId;
+    this.uiEvents = [...c.getUiEvents()];
+    this.error = c.error;
+
+    for (const s of c.attachedSessionsList) this.attached.set(s.sessionId, s);
+    for (const id of [...this.attached.keys()]) {
+      if (!c.getAttached(id)) this.attached.delete(id);
     }
-  }
-
-  cmd(m: C2S): void {
-    // optimistic echo for model picks so the UI updates instantly
-    if (m.type === "pi.setModel") {
-      this.pendingModel.set(m.sessionId, { provider: m.provider, modelId: m.modelId });
-    }
-    this.conn.sendFire(m);
-  }
-
-  /** optimistic send: set pending state right away, server events will settle it */
-  sendPrompt(sessionId: string, text: string): void {
-    this.runState.set(sessionId, "thinking");
-    const sent = this.sentMessages.get(sessionId) ?? [];
-    this.sentMessages.set(sessionId, [...sent, text]);
-    this.cmd({ type: "pi.prompt", sessionId, text });
-  }
-
-  private handle(m: S2C): void {
-    switch (m.type) {
-      case "proto.modelSet": {
-        const a = this.attached.get(m.sessionId);
-        if (a) (a as { model?: unknown }).model = m.model;
-        this.pendingModel.delete(m.sessionId);
-        break;
-      }
-      case "proto.sessions": {
-        this.sessions = m.sessions;
-        break;
-      }
-      case "proto.error": {
-        this.error = m.message;
-        // failed prompt → back to idle so UI doesn't hang; failed model pick → revert echo
-        this.pendingModel.clear();
-        if (this.activeId && this.stateOf(this.activeId) === "thinking") {
-          this.runState.set(this.activeId, "idle");
-        }
-        break;
-      }
-      case "proto.attached": {
-        const a = m as unknown as Attachment;
-        a.events = [];
-        this.attached.set(m.sessionId, a);
-        this.liveEvents.set(m.sessionId, []);
-        this.sentMessages.set(m.sessionId, []);
-        this.runState.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
-        break;
-      }
-      case "pi.evt": {
-        // REACTIVE: replace the array (mutation of a plain array is invisible
-        // to Svelte 5 — only Map.set triggers)
-        const old = this.liveEvents.get(m.sessionId) ?? [];
-        this.liveEvents.set(m.sessionId, [...old, m.event]);
-        // once the authoritative user echo arrives, drop the optimistic copy
-        if ((m.event as { type?: string })?.type === "message_start") {
-          const role = (m.event as { message?: { role?: string } }).message?.role;
-          if (role === "user") {
-            const sent = this.sentMessages.get(m.sessionId);
-            if (sent && sent.length > 0) this.sentMessages.set(m.sessionId, []);
-          }
-        }
-        this.applyRunEvent(m.sessionId, m.event);
-        break;
-      }
-      case "ui.event": {
-        this.uiEvents = [...this.uiEvents, m.event];
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  /** drive runState from the pi event stream */
-  private applyRunEvent(sessionId: string, ev: unknown): void {
-    const e = ev as { type?: string; assistantMessageEvent?: { type?: string } };
-    if (!e?.type) return;
-    switch (e.type) {
-      case "agent_start":
-        // first event of a run — only upgrade from idle/thinking
-        if (["idle", "thinking"].includes(this.stateOf(sessionId))) {
-          this.runState.set(sessionId, "thinking");
-        }
-        break;
-      case "message_update": {
-        const ae = e.assistantMessageEvent?.type;
-        if (ae === "thinking_delta" || ae === "thinking_start") {
-          this.runState.set(sessionId, "thinking");
-        } else if (ae === "text_delta" || ae === "tool_use_start") {
-          if (this.stateOf(sessionId) !== "tooling") this.runState.set(sessionId, "streaming");
-        }
-        break;
-      }
-      case "tool_execution_start":
-      case "tool_execution_update":
-        this.runState.set(sessionId, "tooling");
-        break;
-      case "agent_end":
-      case "agent_settled":
-      case "abort":
-        this.runState.set(sessionId, "idle");
-        break;
-      case "message_end": {
-        // context usage ≈ input + cacheRead + cacheWrite of latest assistant msg
-        const msg = (ev as { message?: { usage?: Record<string, number>; stopReason?: string } })
-          .message;
-        if (msg?.usage) {
-          this.contextTokens.set(
-            sessionId,
-            (msg.usage.input ?? 0) + (msg.usage.cacheRead ?? 0) + (msg.usage.cacheWrite ?? 0),
-          );
-        }
-        // toolUse → agent loop continues; don't flicker to idle
-        if (msg?.stopReason === "toolUse") {
-          this.runState.set(sessionId, "tooling");
-        } else {
-          this.runState.set(sessionId, "idle");
-        }
-        break;
-      }
-      default:
-        break;
+    for (const id of [...this.attached.keys()]) {
+      this.runState.set(id, c.stateOf(id));
+      this.liveEvents.set(id, c.liveEvents(id));
+      this.sentMessages.set(id, c.sentMessages(id));
+      const ctx = c.contextTokens(id);
+      if (ctx !== undefined) this.contextTokens.set(id, ctx);
+      const pm = c.pendingModel(id);
+      if (pm) this.pendingModel.set(id, pm);
+      else this.pendingModel.delete(id);
     }
   }
 }

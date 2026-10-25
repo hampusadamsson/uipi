@@ -12,13 +12,12 @@
   import { Toaster } from "$lib/components/ui/sonner/index.js";
   import { toast } from "svelte-sonner";
 
-  let lastError = $state<string | null>(null);
   $effect(() => {
-    if (ui.error && ui.error !== lastError) {
-      lastError = ui.error;
+    if (ui.error) {
       toast.error(ui.error);
+      // surface once, then clear at the source so a re-render can't re-toast
+      ui.clearError();
     }
-    if (!ui.error) lastError = null;
   });
 
   let sidebarOpen = $state(false);
@@ -36,8 +35,7 @@
           (Attachment & { model?: { provider: string; modelId: string } | null }) | undefined)
       : undefined,
   );
-  const pendingModel = $derived(ui.activeId ? ui.pendingModel.get(ui.activeId) : undefined);
-  const modelShown = $derived(pendingModel ?? attach?.model ?? undefined);
+  const modelShown = $derived(ui.modelOf(ui.activeId));
   const run = $derived<RunState>(ui.stateOf(ui.activeId));
   const runLabel = $derived<Record<RunState, string>>({
     idle: "idle",

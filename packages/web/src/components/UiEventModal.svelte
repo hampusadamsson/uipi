@@ -16,12 +16,8 @@
     if (n.level === "error") toast.error(n.message);
     else if (n.level === "warn") toast.warning(n.message);
     else toast.info(n.message);
-    ui.uiEvents = ui.uiEvents.filter((e) => e !== notif);
+    ui.consumeUiEvent(notif);
   });
-
-  function dismiss() {
-    ui.uiEvents = ui.uiEvents.filter((e) => e !== current);
-  }
 
   function cancel() {
     if (!current) return;
@@ -30,13 +26,11 @@
   }
 
   function resolveSelect(req: UiSelectRequest, index: number | null) {
-    ui.cmd({ type: "ui.selectResponse", sessionId: req.sessionId, selectId: req.selectId, index });
-    dismiss();
+    ui.respondUi({ kind: "select", sessionId: req.sessionId, selectId: req.selectId }, index);
   }
 
   function resolveDialog(req: UiDialogRequest, value: unknown) {
-    ui.cmd({ type: "ui.dialogResponse", sessionId: req.sessionId, dialogId: req.dialogId, value });
-    dismiss();
+    ui.respondUi({ kind: "dialog", sessionId: req.sessionId, dialogId: req.dialogId }, value);
   }
 
   function isSelect(e: { kind?: string }): e is UiSelectRequest & { options: unknown[] } {

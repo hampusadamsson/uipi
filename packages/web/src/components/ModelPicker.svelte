@@ -9,10 +9,7 @@
   let open = $state(false);
   let filter = $state("");
 
-  const attach = $derived(
-    ui.attached.get(sessionId) as { model?: { provider: string; modelId: string } } | undefined,
-  );
-  const cur = $derived(ui.pendingModel.get(sessionId) ?? attach?.model ?? undefined);
+  const cur = $derived(ui.modelOf(sessionId));
   const all = $derived(ui.models.length <= 50);
   const visible = $derived.by(() => {
     const q = filter.trim().toLowerCase();

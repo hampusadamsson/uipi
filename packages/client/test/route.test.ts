@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hash8, pathFor, hashFromPath } from "../src/lib/route.js";
+import { hash8, pathFor, hashFromPath } from "../src/route.js";
 
 describe("session URL routing", () => {
   const file = "/Users/hampus/.pi/agent/sessions/--tmp--/2026-10-25T09-13-59-697Z_01a1.jsonl";

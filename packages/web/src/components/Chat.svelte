@@ -1,20 +1,13 @@
 <script lang="ts">
   import { ui } from "$lib/state.svelte";
-  import { deriveTranscript, type TranscriptEntry } from "$lib/transcript.js";
+  import type { TranscriptEntry } from "@uipi/client";
   import Message from "./Message.svelte";
   import InputBox from "./InputBox.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
 
   let { sessionId }: { sessionId: string } = $props();
 
-  const attach = $derived(ui.attached.get(sessionId));
-  const live = $derived(ui.liveEvents.get(sessionId) ?? []);
-  const sent = $derived(ui.sentMessages.get(sessionId) ?? []);
-  const entries = $derived<TranscriptEntry[]>(
-    attach
-      ? deriveTranscript({ messages: attach.messages ?? [], events: live, sentMessages: sent })
-      : [],
-  );
+  const entries = $derived<TranscriptEntry[]>(ui.transcript(sessionId));
   const run = $derived(ui.stateOf(sessionId));
 
   let scroller: HTMLElement | null = $state(null);
@@ -38,8 +31,8 @@
   $effect(() => {
     // track reactive deps: lengths change on every push
     void entries.length;
-    void live.length;
-    void sent.length;
+    void ui.liveEvents.get(sessionId)?.length;
+    void ui.sentMessages.get(sessionId)?.length;
     if (scroller && pinned) scroller.scrollTop = scroller.scrollHeight;
   });
 </script>

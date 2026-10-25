@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deriveTranscript } from "../src/lib/transcript.js";
-import type { TranscriptEntry } from "../src/lib/transcript.js";
+import { deriveTranscript } from "../src/transcript.js";
+import type { TranscriptEntry } from "../src/transcript.js";
 
 const userMsg = {
   role: "user",

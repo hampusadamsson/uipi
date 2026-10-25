@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ToolCallView } from "$lib/transcript.js";
+  import type { ToolCallView } from "@uipi/client";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
 
