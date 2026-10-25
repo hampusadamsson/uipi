@@ -192,8 +192,7 @@ export class SessionService {
                 model: sessionModelRef(s.session),
                 thinkingLevel: String(s.session.thinkingLevel ?? ""),
                 tools: [...s.session.getActiveToolNames()],
-                // commands: filled in by command discovery
-                commands: [],
+                commands: discoverCommands(s.session),
               });
             } catch {
               /* dead */
@@ -224,7 +223,7 @@ export class SessionService {
                 model: modelRef,
                 thinkingLevel: String(s.session.thinkingLevel ?? ""),
                 tools: [...s.session.getActiveToolNames()],
-                commands: [],
+                commands: discoverCommands(s.session),
               });
             } catch {
               /* dead */
@@ -546,8 +545,7 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     thinkingLevel: String(live.session.thinkingLevel ?? ""),
     tools: [...live.session.getActiveToolNames()],
     role: mirrorActiveRole(live.session, live.agentDir),
-    // placeholder: filled in by the command-discovery task
-    commands: [],
+    commands: discoverCommands(live.session),
     statuses: live.uiHost.statuses(),
     cwd: live.cwd,
     isStreaming: live.session.isIdle === false,
@@ -555,6 +553,71 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     followUp: [...live.session.getFollowUpMessages()],
     sessionFile: live.sessionFile ?? null,
   } satisfies S2C;
+}
+
+/** One discoverable slash command, as the protocol carries it. */
+type CommandInfo = { name: string; description?: string };
+
+/**
+ * The slice of AgentSession command discovery touches. All three accessors are
+ * optional so a fake (or an older pi) can omit any of them without a throw.
+ */
+type CommandDiscoverySource = {
+  extensionRunner?: {
+    getRegisteredCommands?: () => { name: string; invocationName?: string; description?: string }[];
+  };
+  promptTemplates?: ReadonlyArray<{ name: string; description?: string }>;
+  resourceLoader?: {
+    getSkills?: () => { skills?: { name: string; description?: string }[] };
+  };
+};
+
+/**
+ * Naming convention — ONE rule for every source: the name is what the user types
+ * *without* the leading "/", because the client owns the slash (displays it,
+ * inserts it). Sources:
+ *
+ *  - extension → `invocationName`, i.e. `/foo` or `/foo:2` when two extensions
+ *    register the same command (pi resolves commands by invocationName),
+ *  - prompt template → the template name, `/review`,
+ *  - skill → `skill:<name>`, pi's own skill addressing, `/skill:<name>`.
+ *
+ * Deduped by name (first wins: extension → prompt → skill, pi's own precedence)
+ * and sorted by name so the picker order is stable between attaches.
+ *
+ * pi's TUI builtins are not among them: `BUILTIN_SLASH_COMMANDS` are handled by
+ * InteractiveMode, never registered as an extension command, template or skill,
+ * so the picker only ever advertises commands that actually run in the web UI.
+ *
+ * Display-only: any failure yields `[]` — an empty picker beats a broken attach.
+ */
+export function discoverCommands(session: AgentSession): CommandInfo[] {
+  try {
+    const src = session as unknown as CommandDiscoverySource;
+    const found: CommandInfo[] = [];
+    const add = (name: unknown, description: unknown) => {
+      if (typeof name !== "string" || name.length === 0) return;
+      found.push(
+        typeof description === "string" && description.length > 0
+          ? { name, description }
+          : { name },
+      );
+    };
+    for (const command of src.extensionRunner?.getRegisteredCommands?.() ?? []) {
+      add(command.invocationName ?? command.name, command.description);
+    }
+    for (const template of src.promptTemplates ?? []) add(template.name, template.description);
+    for (const skill of src.resourceLoader?.getSkills?.().skills ?? []) {
+      add(`skill:${skill.name}`, skill.description);
+    }
+    const seen = new Set<string>();
+    return found
+      .filter((c) => (seen.has(c.name) ? false : (seen.add(c.name), true)))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  } catch {
+    // display-only: a broken discovery source must never break attach or a broadcast
+    return [];
+  }
 }
 
 /** Slash command name parsed exactly as pi does: text after "/" up to the first space. */
