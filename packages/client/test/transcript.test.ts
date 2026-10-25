@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { deriveTranscript } from "../src/transcript.js";
+import { describe, it, expect, afterEach } from "vitest";
+import {
+  deriveTranscript,
+  registerCustomEntryRenderer,
+  customEntryRenderers,
+} from "../src/transcript.js";
 import type { TranscriptEntry } from "../src/transcript.js";
 
 const userMsg = {
@@ -115,5 +119,102 @@ describe("deriveTranscript", () => {
     expect(withTool!.toolCalls[0].name).toBe("ls");
     expect(withTool!.toolCalls[0].output).toContain("file-a");
     expect(withTool!.toolCalls[0].done).toBe(true);
+  });
+});
+
+describe("custom entry rendering", () => {
+  const roleSwitch = (role: string | null) => ({
+    type: "custom",
+    customType: "role-switch",
+    data: { role },
+  });
+
+  afterEach(() => {
+    // the registry is module-level: don't leak ad-hoc renderers across tests
+    customEntryRenderers.delete("test-todo");
+  });
+
+  it("renders a role-switch appended after a user message", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg],
+      events: [{ type: "entry_appended", entry: { ...roleSwitch("architect"), id: "e1" } }],
+    });
+    const system = entries.filter((e) => e.kind === "system");
+    expect(system).toHaveLength(1);
+    expect(system[0].text).toBe("◆ role → architect");
+    expect(system[0].text.split("\n")).toHaveLength(1);
+    expect(system[0].id).toBe("role-e1");
+  });
+
+  it("renders a role-switch present in the messages snapshot", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, roleSwitch("architect")],
+      events: [],
+    });
+    expect(entries.some((e) => e.text === "◆ role → architect")).toBe(true);
+  });
+
+  it("suppresses a role-switch that precedes the first user message", () => {
+    const entries = deriveTranscript({
+      messages: [roleSwitch("architect"), userMsg],
+      events: [],
+    });
+    expect(entries.some((e) => e.kind === "system")).toBe(false);
+    expect(entries.some((e) => e.role === "user")).toBe(true);
+  });
+
+  it("suppresses a startup role-switch appended before any user message lands", () => {
+    const entries = deriveTranscript({
+      messages: [],
+      events: [{ type: "entry_appended", entry: roleSwitch("architect") }],
+    });
+    expect(entries).toHaveLength(0);
+  });
+
+  it("renders a null role as none", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg],
+      events: [{ type: "entry_appended", entry: roleSwitch(null) }],
+    });
+    const system = entries.find((e) => e.kind === "system");
+    expect(system!.text).toBe("◆ role → none");
+  });
+
+  it("renders nothing for an unknown customType", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg],
+      events: [{ type: "entry_appended", entry: { type: "custom", customType: "nope", data: {} } }],
+    });
+    expect(entries.some((e) => e.kind === "system")).toBe(false);
+    expect(entries).toHaveLength(1);
+  });
+
+  it("renders other custom types through the registry, and replacing a renderer wins", () => {
+    const todo = { type: "custom", customType: "test-todo", data: { title: "ship it" }, id: "t1" };
+    const base = { messages: [userMsg], events: [{ type: "entry_appended", entry: todo }] };
+    // unregistered → nothing
+    expect(deriveTranscript(base).some((e) => e.kind === "system")).toBe(false);
+
+    registerCustomEntryRenderer("test-todo", (entry) => ({
+      kind: "system",
+      text: `todo: ${(entry.data as { title: string }).title}`,
+      thinking: "",
+      thinkingActive: false,
+      toolCalls: [],
+      raw: entry,
+      id: `todo-${entry.id}`,
+    }));
+    expect(deriveTranscript(base).find((e) => e.kind === "system")!.text).toBe("todo: ship it");
+
+    registerCustomEntryRenderer("test-todo", (entry) => ({
+      kind: "system",
+      text: `TODO! ${(entry.data as { title: string }).title}`,
+      thinking: "",
+      thinkingActive: false,
+      toolCalls: [],
+      raw: entry,
+      id: `todo-b-${entry.id}`,
+    }));
+    expect(deriveTranscript(base).find((e) => e.kind === "system")!.text).toBe("TODO! ship it");
   });
 });

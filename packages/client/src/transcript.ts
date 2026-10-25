@@ -23,15 +23,63 @@ export interface ToolCallView {
   isError: boolean;
 }
 
+/**
+ * A pi custom session entry (`{ type: "custom", customType, data }`) as it
+ * reaches the client: from a snapshot or from an `entry_appended` event.
+ */
+export interface CustomEntryView {
+  type: "custom";
+  customType: string;
+  data?: unknown;
+  id?: string;
+  timestamp?: string;
+}
+
+/**
+ * Renders one custom session entry into a transcript entry, or `null` to drop
+ * it. `index` is the entry's position in the projection, for deterministic ids.
+ */
+export type CustomEntryRenderer = (entry: CustomEntryView, index: number) => TranscriptEntry | null;
+
+/**
+ * Extension point for custom session entries: `customType` → renderer.
+ * Anything not registered here renders nothing, so unknown extension state
+ * never leaks into the transcript as noise. A frontend or a later feature adds
+ * a custom type by registering a renderer (e.g. `subagents`, todos).
+ */
+export const customEntryRenderers = new Map<string, CustomEntryRenderer>();
+
+/**
+ * Register (or replace) the renderer for one custom entry type. Replacing an
+ * existing customType is allowed; the latest registration wins.
+ */
+export function registerCustomEntryRenderer(
+  customType: string,
+  renderer: CustomEntryRenderer,
+): void {
+  customEntryRenderers.set(customType, renderer);
+}
+
+/**
+ * Project a session snapshot plus the live events since attach into renderable
+ * transcript entries. Snapshot messages come first, optimistic sent messages
+ * fill in until the server echoes a user message, then live events are folded
+ * on top. Custom session entries go through {@link customEntryRenderers}, and
+ * any that precede the first user message are dropped (startup state is not an
+ * event).
+ */
 export function deriveTranscript(attach: {
   messages: unknown[];
   events: unknown[];
   sentMessages?: string[];
 }): TranscriptEntry[] {
   const out: TranscriptEntry[] = [];
-  // 1. snapshot messages (history at attach time)
+  // 1. snapshot messages (history at attach time); a snapshot is normally
+  // model-context messages, but custom entries are tolerated in place so the
+  // startup-suppression rule stays positionally correct
   for (const m of attach.messages ?? []) {
-    out.push(fromMessage(m, `snap${out.length}`));
+    const entry = fromSnapshot(m, out.length);
+    if (entry) out.push(entry);
   }
   // 2. optimistic user messages only while the server hasn't echoed any user message yet
   const hasUserEcho = out.some((e) => e.role === "user");
@@ -53,8 +101,59 @@ export function deriveTranscript(attach: {
   for (const ev of attach.events ?? []) {
     applyEvent(out, ev);
   }
-  return coalesce(out);
+  // 4. entries before the first user message are initial state, not events
+  return coalesce(suppressBeforeFirstUser(out));
 }
+
+function isCustomEntry(v: unknown): v is CustomEntryView {
+  if (!v || typeof v !== "object") return false;
+  const e = v as { type?: unknown; customType?: unknown };
+  return e.type === "custom" && typeof e.customType === "string";
+}
+
+/** Render a snapshot item: a custom entry goes through the registry, anything
+ *  else is treated as a message. Returns null when the entry renders nothing. */
+function fromSnapshot(m: unknown, index: number): TranscriptEntry | null {
+  if (!isCustomEntry(m)) return fromMessage(m, `snap${index}`);
+  return renderCustomEntry(m, index);
+}
+
+/** Run one custom entry through the registry. Unknown types render nothing. */
+function renderCustomEntry(entry: CustomEntryView, index: number): TranscriptEntry | null {
+  const renderer = customEntryRenderers.get(entry.customType);
+  return renderer ? renderer(entry, index) : null;
+}
+
+/**
+ * Drop custom-entry rows that precede the first user message: a session's
+ * startup state (the default role, initial todos, …) is an initial condition,
+ * not something that happened. Generic — keyed on position, not on customType.
+ */
+function suppressBeforeFirstUser(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const firstUser = entries.findIndex((e) => e.role === "user");
+  if (firstUser === 0) return entries;
+  return entries.filter((e, i) => {
+    if (!isCustomEntry(e.raw)) return true;
+    // keep custom entries only once a user message precedes them
+    return firstUser >= 0 && i > firstUser;
+  });
+}
+
+/** role-switch: `◆ role → architect`. One line, no role → `none`. */
+function roleSwitchEntry(entry: CustomEntryView, index: number): TranscriptEntry {
+  const role = (entry.data as { role?: string | null } | undefined)?.role ?? "none";
+  return {
+    kind: "system",
+    text: `◆ role → ${role}`,
+    thinking: "",
+    thinkingActive: false,
+    toolCalls: [],
+    raw: entry,
+    id: `role-${entry.id ?? index}`,
+  };
+}
+
+registerCustomEntryRenderer("role-switch", roleSwitchEntry);
 
 function textOf(m: unknown): string {
   const mm = m as { content?: unknown };
@@ -131,6 +230,15 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
     case "tool_execution_update":
     case "tool_execution_end": {
       upsertToolCall(out, ev);
+      break;
+    }
+    case "entry_appended": {
+      const entry = ev.entry;
+      if (isCustomEntry(entry)) {
+        const rendered = renderCustomEntry(entry, out.length);
+        // an `entry_appended` for an entry the snapshot already rendered
+        if (rendered && !out.some((e) => e.id === rendered.id)) out.push(rendered);
+      }
       break;
     }
     case "compaction_start":
