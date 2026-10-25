@@ -7,7 +7,7 @@
   let { sessionId }: { sessionId: string } = $props();
 
   let text = $state("");
-  let ta: HTMLTextAreaElement | null = $state(null);
+  let ta: HTMLTextAreaElement | undefined = $state(undefined);
   let acIndex = $state(-1);
   let acItems = $state<string[]>([]);
 
@@ -132,7 +132,7 @@
   {/if}
   <div class="flex gap-2 items-end">
     <Textarea
-      bind:this={ta as never}
+      bind:this={ta}
       bind:value={text}
       onkeydown={onKeydown}
       oninput={onInput}
