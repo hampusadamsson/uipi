@@ -140,9 +140,11 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
       break;
     }
     case "compaction_start":
-    case "compaction_end":
-    case "branch_summary": {
-      out.push({ kind: "compaction", text: `${ev.type}`, thinking: "", thinkingActive: false, toolCalls: [], raw: ev, id: `c${out.length}` });
+    case "compaction_end": {
+      const label = ev.type === "compaction_end"
+        ? `compacted · ${((ev as { summary?: string }).summary ?? "context condensed").slice(0, 120)}`
+        : "compacting context…";
+      out.push({ kind: "compaction", text: label, thinking: "", thinkingActive: false, toolCalls: [], raw: ev, id: `c${out.length}` });
       break;
     }
     default:

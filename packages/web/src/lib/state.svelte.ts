@@ -32,6 +32,8 @@ export class UiState {
   sentMessages = new SvelteMap<string, string[]>();
   /** sessionId -> latest context tokens (input+cacheRead+cacheWrite from message_end) */
   contextTokens = new SvelteMap<string, number>();
+  /** sessionId -> model pick echoed locally before proto.modelSet settles */
+  pendingModel = new SvelteMap<string, { provider: string; modelId: string }>();
 
   init() {
     this.conn.onOpen = () => {
@@ -121,6 +123,10 @@ export class UiState {
   }
 
   cmd(m: C2S): void {
+    // optimistic echo for model picks so the UI updates instantly
+    if (m.type === "pi.setModel") {
+      this.pendingModel.set(m.sessionId, { provider: m.provider, modelId: m.modelId });
+    }
     this.conn.sendFire(m);
   }
 
@@ -137,6 +143,7 @@ export class UiState {
       case "proto.modelSet": {
         const a = this.attached.get(m.sessionId);
         if (a) (a as { model?: unknown }).model = m.model;
+        this.pendingModel.delete(m.sessionId);
         break;
       }
       case "proto.sessions": {
@@ -145,7 +152,8 @@ export class UiState {
       }
       case "proto.error": {
         this.error = m.message;
-        // failed prompt → back to idle so UI doesn't hang
+        // failed prompt → back to idle so UI doesn't hang; failed model pick → revert echo
+        this.pendingModel.clear();
         if (this.activeId && this.stateOf(this.activeId) === "thinking") {
           this.runState.set(this.activeId, "idle");
         }
@@ -191,7 +199,6 @@ export class UiState {
     if (!e?.type) return;
     switch (e.type) {
       case "agent_start":
-      case "turn_start":
         // first event of a run — only upgrade from idle/thinking
         if (["idle", "thinking"].includes(this.stateOf(sessionId))) {
           this.runState.set(sessionId, "thinking");

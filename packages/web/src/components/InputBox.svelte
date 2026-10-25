@@ -7,7 +7,14 @@
   let { sessionId }: { sessionId: string } = $props();
 
   let text = $state("");
-  let ta: HTMLTextAreaElement | undefined = $state(undefined);
+  let ta = $state<{ ref?: HTMLTextAreaElement | null; $$bindings?: string } | undefined>(undefined);
+  const taEl = $derived(ta?.ref as HTMLTextAreaElement | undefined);
+
+  function autosize() {
+    if (!taEl) return;
+    taEl.style.height = "auto";
+    taEl.style.height = Math.min(taEl.scrollHeight, 160) + "px";
+  }
   let acIndex = $state(-1);
   let acItems = $state<string[]>([]);
 
@@ -57,12 +64,6 @@
     autosize();
   }
 
-  function autosize() {
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
-  }
-
   function acceptAc() {
     if (acIndex >= 0 && acItems[acIndex]) {
       text = acItems[acIndex] + " ";
@@ -85,12 +86,12 @@
       ui.sendPrompt(sessionId, v);
     }
     text = "";
-    if (ta) ta.style.height = "auto";
+    if (taEl) taEl.style.height = "auto";
     refocus();
   }
 
   function refocus() {
-    requestAnimationFrame(() => ta?.focus());
+    requestAnimationFrame(() => taEl?.focus());
   }
 </script>
 

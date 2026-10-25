@@ -37,6 +37,8 @@
           | undefined)
       : undefined
   );
+  const pendingModel = $derived(ui.activeId ? ui.pendingModel.get(ui.activeId) : undefined);
+  const modelShown = $derived(pendingModel ?? attach?.model ?? undefined);
   const run = $derived<RunState>(ui.stateOf(ui.activeId));
   const runLabel = $derived<Record<RunState, string>>({
     idle: "idle",
@@ -80,7 +82,7 @@
           class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
         >{runLabel[run]}</Badge>
         <span class="text-xs text-muted-foreground hidden lg:inline">
-          {attach.model?.provider}/{attach.model?.modelId} · {attach.thinkingLevel}
+          {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
         </span>
         {#if ui.contextTokens.get(attach.sessionId)}
           <Badge variant="outline" class="text-[10px] shrink-0 font-normal">

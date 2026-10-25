@@ -1,0 +1,106 @@
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { C2S, S2C, UiEvent } from "@uipi/protocol";
+import type { Send } from "./types.js";
+
+/**
+ * Web-mode ExtensionUIContext host: bridges pi extension `ctx.ui` calls
+ * (select/confirm/input/notify) over the WS protocol to browser UI and
+ * routes `ui.dialogResponse`/`ui.selectResponse` commands back into the
+ * pending promises.
+ */
+export class UiHost {
+  private pending = new Map<string, (v: unknown) => void>();
+  private nextId = 1;
+  private send: Send = () => {};
+
+  constructor(private sessionId: () => string, private mode = "rpc") {}
+
+  /** wire to the WS subscriber with implicit-attach semantics */
+  attachSend(send: Send): void {
+    this.send = send;
+  }
+
+  /** incoming ui.dialogResponse / ui.selectResponse from a client */
+  response(kind: "dialog" | "select", id: string, value: unknown): void {
+    const res = this.pending.get(id);
+    if (res) {
+      this.pending.delete(id);
+      res(value);
+    }
+  }
+
+  ui: ExtensionUIContext = {
+    select: (title, options, opts) => this.request("select", { title, options, opts }),
+    confirm: (title, message, opts) => this.request("confirm", { title, message, opts }),
+    input: (title, placeholder, opts) => this.request("input", { title, placeholder, opts }),
+    notify: (message, type = "info") => {
+      const ev: UiEvent = {
+        kind: "notification",
+        sessionId: this.sessionId(),
+        level: type === "warning" ? "warn" : type === "error" ? "error" : "info",
+        message,
+      };
+      this.send({ type: "ui.event", event: ev } as unknown as S2C);
+    },
+    // terminal-only bits: no-ops in web mode
+    onTerminalInput: () => () => {},
+    setStatus: () => {},
+    setWorkingMessage: () => {},
+    setWorkingVisible: () => {},
+    setWorkingIndicator: () => {},
+    setHiddenThinkingLabel: () => {},
+    setWidget: () => {},
+    setFooter: () => {},
+    setHeader: () => {},
+    setTitle: () => {},
+    custom: async <T>(): Promise<T> => {
+      throw new Error("ui.custom is not available in web mode");
+    },
+    pasteToEditor: () => {},
+    setEditorText: () => {},
+    getEditorText: () => "",
+    editor: (_title, prefill) => Promise.resolve(prefill),
+    addAutocompleteProvider: () => {},
+    setEditorComponent: () => {},
+    getEditorComponent: () => undefined,
+    theme: undefined as never,
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({ success: false, error: "themes not available in web mode" }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: () => {},
+  } as ExtensionUIContext;
+
+  /** Protocol surface the client sees (mirrors @uipi/protocol UiEvent kinds) */
+  private request<T>(kind: "select" | "confirm" | "input", payload: unknown): Promise<T | undefined> {
+    const id = `ui${this.nextId++}`;
+    return new Promise((resolve) => {
+      // tie-breaker so a closed browser doesn't hang the extension forever
+      const t = setTimeout(() => {
+        this.pending.delete(id);
+        resolve(undefined as T | undefined);
+      }, 120000);
+      this.pending.set(id, (v: unknown) => {
+        clearTimeout(t);
+        resolve(v as T);
+      });
+      const ev: UiEvent =
+        kind === "select"
+          ? {
+              kind: "select",
+              selectId: id,
+              sessionId: this.sessionId(),
+              title: (payload as { title: string }).title,
+              options: ((payload as { options: string[] }).options ?? []).map((label) => ({ label })),
+            }
+          : {
+              kind: "dialog",
+              dialogId: id,
+              sessionId: this.sessionId(),
+              title: (payload as { title: string }).title,
+              payload,
+            };
+      this.send({ type: "ui.event", event: ev } as unknown as S2C);
+    });
+  }
+}

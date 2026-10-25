@@ -10,16 +10,17 @@ import {
   type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import type { Model as PiModel } from "@earendil-works/pi-ai";
+import { UiHost } from "./uihost.js";
 import type { Send, Subscriber } from "./types.js";
 
 export type CreateRuntimeFn = typeof createAgentSessionRuntime;
-
 interface LiveSession {
   id: string;
   cwd: string;
   sessionFile: string | undefined;
   runtime: AgentSessionRuntime;
   session: AgentSession;
+  uiHost: UiHost;
   subscribers: Map<Subscriber, true>;
   unsubscribe: () => void;
   createdAt: number;
@@ -41,6 +42,20 @@ export class SessionService {
 
   async handle(msg: C2S, reply: Send, _sub: Subscriber): Promise<void> {
     switch (msg.type) {
+      case "ui.dialogResponse":
+      case "ui.selectResponse": {
+        const kind = msg.type === "ui.dialogResponse" ? "dialog" : "select";
+        const id =
+          msg.type === "ui.dialogResponse"
+            ? (msg as { dialogId: string }).dialogId
+            : (msg as { selectId: string }).selectId;
+        const value =
+          msg.type === "ui.dialogResponse"
+            ? (msg as { value: unknown }).value
+            : (msg as { index: number | null }).index;
+        this.live.get(msg.sessionId)?.uiHost.response(kind, id, value);
+        break;
+      }
       case "proto.listSessions": {
         await this.replySessions(reply);
         break;
@@ -50,11 +65,11 @@ export class SessionService {
         break;
       }
       case "proto.newSession": {
-        await this.newSession(msg.cwd, msg.agentDir, reply);
+        await this.newSession(msg.cwd, msg.agentDir, reply, _sub);
         break;
       }
       case "proto.openSession": {
-        await this.openSessionFile(msg.sessionFilePath, reply);
+        await this.openSessionFile(msg.sessionFilePath, reply, _sub);
         break;
       }
       case "proto.attach": {
@@ -151,10 +166,12 @@ export class SessionService {
     }
   }
 
-  private async newSession(cwd: string, agentDir: string | undefined, reply: Send) {
+  private async newSession(cwd: string, agentDir: string | undefined, reply: Send, sub: Subscriber) {
     try {
       const live = await this.materialize(cwd, undefined, agentDir);
       this.pushRecentDir(cwd);
+      // creator is implicitly attached — receives the live event stream from now on
+      live.subscribers.set(sub, true);
       reply(await attachPayload(live));
       await this.replySessions(reply);
     } catch (e) {
@@ -162,10 +179,12 @@ export class SessionService {
     }
   }
 
-  private async openSessionFile(file: string, reply: Send) {
+  private async openSessionFile(file: string, reply: Send, sub: Subscriber) {
     try {
       const cwd = inferCwdFromSessionFile(file) ?? process.cwd();
       const live = await this.materialize(cwd, file, undefined);
+      // opener is implicitly attached — same as newSession
+      live.subscribers.set(sub, true);
       reply(await attachPayload(live));
       await this.replySessions(reply);
     } catch (e) {
@@ -224,19 +243,30 @@ export class SessionService {
     );
     const session: AgentSession = (runtime as unknown as { session: AgentSession }).session;
     const id = randomUUID();
+    const uiHost = new UiHost(() => live.id, "rpc");
+    uiHost.attachSend((m) => {
+      for (const s of live.subscribers.keys()) {
+        try {
+          s.send(m);
+        } catch {
+          /* dead subscriber */
+        }
+      }
+    });
     const live: LiveSession = {
       id,
       cwd,
       sessionFile: session.sessionFile,
       runtime: runtime as unknown as AgentSessionRuntime,
       session,
+      uiHost,
       subscribers: new Map(),
       unsubscribe: () => {},
       createdAt: Date.now(),
     };
     this.live.set(id, live);
     if (session.sessionFile) this.byFile.set(session.sessionFile, id);
-    await session.bindExtensions({});
+    await session.bindExtensions({ uiContext: uiHost.ui, mode: "rpc" });
     live.unsubscribe = session.subscribe((event) => {
       for (const sub of live.subscribers.keys()) {
         try {
