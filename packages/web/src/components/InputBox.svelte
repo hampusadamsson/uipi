@@ -92,10 +92,9 @@
     if (v === "/compact") {
       ui.runState.set(sessionId, "thinking");
       ui.cmd({ type: "pi.compact", sessionId });
-    } else if (attach && attach.isStreaming) {
-      // steering a live run — no state change, queue it
-      ui.cmd({ type: "pi.steer", sessionId, text: v });
     } else {
+      // always queue: sendPrompt is queued server-side when a run is in flight,
+      // so submitting mid-run never fails and never interrupts the current turn
       ui.sendPrompt(sessionId, v);
     }
     text = "";

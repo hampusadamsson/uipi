@@ -142,6 +142,13 @@ export type S2C = S2CBase &
         sessionId: string;
         model: { provider: string; modelId: string } | null;
       }
+    | {
+        /** queued (waiting) messages for a running agent */
+        type: "proto.queues";
+        sessionId: string;
+        steering: unknown[];
+        followUp: unknown[];
+      }
     | { type: "ui.event"; event: UiEvent }
     | { type: "pi.evt"; sessionId: string; event: unknown }
   );

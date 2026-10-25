@@ -222,9 +222,12 @@ export class UipiClient {
     this.conn.sendFire(m);
   }
 
-  /** Send a prompt optimistically: the user's text appears immediately. */
+  /** Send a prompt optimistically: the user's text appears immediately.
+   *  If a run is already in flight the server queues it, so don't clobber the
+   *  live run state (it stays streaming/tooling). */
   sendPrompt(sessionId: string, text: string): void {
-    this.runStateById.set(sessionId, "thinking");
+    const run = this.stateOf(sessionId);
+    if (run === "idle") this.runStateById.set(sessionId, "thinking");
     const sent = this.sentMessagesById.get(sessionId) ?? [];
     this.sentMessagesById.set(sessionId, [...sent, text]);
     this.emit();
@@ -326,6 +329,17 @@ export class UipiClient {
         this.pendingModelById.delete(m.sessionId);
         break;
       }
+      case "proto.queues": {
+        const a = this.attachedSessions.get(m.sessionId);
+        if (a) {
+          this.attachedSessions.set(m.sessionId, {
+            ...a,
+            steering: m.steering,
+            followUp: m.followUp,
+          });
+        }
+        break;
+      }
       case "proto.sessions": {
         this.sessions = m.sessions;
         break;
@@ -366,11 +380,14 @@ export class UipiClient {
   }
 
   /** Drop the optimistic user message once the authoritative echo arrives. */
+  /** Drop one optimistic user message per authoritative echo (they arrive in
+   *  order). Clearing the whole list would wipe still-queued prompts that the
+   *  server has not delivered yet. */
   private settleSentMessage(sessionId: string, event: unknown): void {
     const e = event as { type?: string; message?: { role?: string } };
     if (e?.type !== "message_start" || e.message?.role !== "user") return;
     const sent = this.sentMessagesById.get(sessionId);
-    if (sent && sent.length > 0) this.sentMessagesById.set(sessionId, []);
+    if (sent && sent.length > 0) this.sentMessagesById.set(sessionId, sent.slice(1));
   }
 
   /** Drive run state and context usage from the pi event stream. */

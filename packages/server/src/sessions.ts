@@ -106,16 +106,27 @@ export class SessionService {
       return;
     }
     switch (msg.type) {
-      case "pi.prompt":
+      case "pi.prompt": {
+        // Never reject a prompt just because the agent is busy: queue it instead.
+        // A plain prompt submitted mid-run is a follow-up (wait for the current
+        // turn), which is what users expect from "just send it".
+        if (!s.session.isIdle) {
+          s.session.followUp(msg.text);
+          this.broadcastQueues(s);
+          break;
+        }
         s.session
           .prompt(msg.text)
           .catch((e: unknown) => reply({ type: "proto.error", message: String(e) }));
         break;
+      }
       case "pi.steer":
         s.session.steer(msg.text);
+        this.broadcastQueues(s);
         break;
       case "pi.followUp":
         s.session.followUp(msg.text);
+        this.broadcastQueues(s);
         break;
       case "pi.abort":
         await s.session.abort();
@@ -166,6 +177,7 @@ export class SessionService {
         }
         // pi exposes queue-clearing only wholesale; cancel any = clear both queues
         s.session.clearQueue();
+        this.broadcastQueues(s);
         break;
       }
       default:
@@ -350,6 +362,23 @@ export class SessionService {
     }
     live.subscribers.set(sub, true);
     reply(await attachPayload(live));
+  }
+
+  /** Push queue contents to this session's subscribers so chips appear at once. */
+  private broadcastQueues(s: LiveSession): void {
+    const msg = {
+      type: "proto.queues" as const,
+      sessionId: s.id,
+      steering: [...s.session.getSteeringMessages()],
+      followUp: [...s.session.getFollowUpMessages()],
+    };
+    for (const sub of s.subscribers.keys()) {
+      try {
+        sub.send(msg);
+      } catch {
+        /* dead subscriber */
+      }
+    }
   }
 
   private detach(sessionId: string, sub: Subscriber, reply: Send): void {
