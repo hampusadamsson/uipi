@@ -90,7 +90,7 @@ export function createServer(opts: ServerOptions, service: SessionService) {
           (msg.id !== undefined ? { ...m, id: msg.id } : m) as S2C
         );
       try {
-    if ("sessionId" in msg && msg.type.startsWith("pi.")) {
+        if ("sessionId" in msg && msg.type.startsWith("pi.")) {
           void service.handleSessionCmd(msg, reply);
         } else {
           void service.handle(msg, reply, sub);
@@ -101,7 +101,9 @@ export function createServer(opts: ServerOptions, service: SessionService) {
     });
     socket.on("close", () => {
       clients.delete(sub);
-      // subscriber is dropped; live sessions keep running
+      // drop this socket from every live session, otherwise dead subscribers
+      // accumulate and every pi event fans out to closed sockets
+      service.dropSubscriber(sub);
     });
   });
 

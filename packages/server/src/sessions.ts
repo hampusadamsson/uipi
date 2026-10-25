@@ -323,6 +323,11 @@ export class SessionService {
     reply({ type: "proto.detached", sessionId });
   }
 
+  /** socket closed — forget this subscriber everywhere so events stop fanning out to it */
+  dropSubscriber(sub: Subscriber): void {
+    for (const live of this.live.values()) live.subscribers.delete(sub);
+  }
+
   private pushRecentDir(dir: string): void {
     this.recentDirs = [dir, ...this.recentDirs.filter((d) => d !== dir)].slice(0, 20);
   }
