@@ -9,7 +9,7 @@
     "build": "pnpm -r run build",
     "start": "pnpm --filter @uipi/server start",
     "check": "pnpm -r run check",
-    "test": "pnpm --filter @uipi/server test"
+    "test": "pnpm -r run test"
   },
   "engines": {
     "node": ">=22.19"
