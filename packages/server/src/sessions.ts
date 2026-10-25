@@ -35,6 +35,8 @@ export class SessionService {
   private byFile = new Map<string, string>();
   private recentDirs: string[] = [];
   private createRuntime: CreateRuntimeFn;
+  /** set by transport: broadcast to all clients; the initiative's own subscribers are skipped via identity */
+  broadcast: (msg: S2C, initiator?: unknown) => void = () => {};
 
   constructor(createRuntime: CreateRuntimeFn = createAgentSessionRuntime) {
     this.createRuntime = createRuntime;
@@ -216,7 +218,10 @@ export class SessionService {
   }
 
   private async replySessions(reply: Send) {
-    reply({ type: "proto.sessions", sessions: await this.listAllSessions() });
+    const msg = { type: "proto.sessions" as const, sessions: await this.listAllSessions() };
+    reply(msg);
+    // broadcast to every other connected client so sidebars stay in sync
+    this.broadcast?.(msg, reply);
   }
 
   private async materialize(cwd: string, sessionFile: string | undefined, agentDir: string | undefined): Promise<LiveSession> {

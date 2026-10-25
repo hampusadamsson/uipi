@@ -58,6 +58,17 @@ export function createServer(opts: ServerOptions, service: SessionService) {
   });
 
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const clients = new Set<Subscriber>();
+  // session lifecycle changes (new/open/detach) broadcast to every connected client
+  service.broadcast = (msg) => {
+    for (const c of clients) {
+      try {
+        c.send(msg);
+      } catch {
+        /* dead socket */
+      }
+    }
+  };
 
   wss.on("connection", (socket: WebSocket) => {
     const sub: Subscriber = {
@@ -65,6 +76,7 @@ export function createServer(opts: ServerOptions, service: SessionService) {
         if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
       },
     };
+    clients.add(sub);
     socket.on("message", (raw: unknown) => {
       let msg: C2S & { id?: string };
       try {
@@ -78,7 +90,7 @@ export function createServer(opts: ServerOptions, service: SessionService) {
           (msg.id !== undefined ? { ...m, id: msg.id } : m) as S2C
         );
       try {
-        if ("sessionId" in msg && msg.type.startsWith("pi.")) {
+    if ("sessionId" in msg && msg.type.startsWith("pi.")) {
           void service.handleSessionCmd(msg, reply);
         } else {
           void service.handle(msg, reply, sub);
@@ -88,6 +100,7 @@ export function createServer(opts: ServerOptions, service: SessionService) {
       }
     });
     socket.on("close", () => {
+      clients.delete(sub);
       // subscriber is dropped; live sessions keep running
     });
   });
