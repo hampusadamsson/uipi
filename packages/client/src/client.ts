@@ -1,4 +1,4 @@
-import type { ModelInfo, SessionSummary, C2S, S2C, UiEvent } from "@uipi/protocol";
+import type { ModelInfo, SessionSummary, SkillInfo, C2S, S2C, UiEvent } from "@uipi/protocol";
 import type { Conn } from "./conn.js";
 import { pathFor, hash8, hashFromPath } from "./route.js";
 
@@ -54,6 +54,8 @@ export class UipiClient {
   sessions: SessionSummary[] = [];
   recentDirs: string[] = [];
   models: ModelInfo[] = [];
+  /** pi skills discoverable for the active session's cwd */
+  skills: SkillInfo[] = [];
   activeId: string | null = null;
   error: string | null = null;
 
@@ -63,6 +65,8 @@ export class UipiClient {
   private sentMessagesById = new Map<string, string[]>();
   private contextTokensById = new Map<string, number>();
   private pendingModelById = new Map<string, { provider: string; modelId: string }>();
+  /** cwd {@link skills} was fetched for, so a re-fetch only happens on change */
+  private skillsCwd: string | null = null;
   private uiEvents: UiEvent[] = [];
   private listeners = new Set<() => void>();
 
@@ -233,6 +237,8 @@ export class UipiClient {
     this.sentMessagesById.delete(sessionId);
     if (this.activeId === sessionId) {
       this.activeId = [...this.attachedSessions.keys()][0] ?? null;
+      // the switch to another session may switch cwd, and with it the skills
+      void this.syncSkillsForCwd();
     }
     this.emit();
   }
@@ -278,6 +284,26 @@ export class UipiClient {
     this.uiEvents = this.uiEvents.filter((e) => e.id !== event.id);
     if (this.uiEvents.length === before) return;
     this.emit();
+  }
+
+  /**
+   * Skills pi discovers for one cwd (user skills plus `<cwd>/.pi/skills`).
+   * Kept per-cwd rather than per-session: what a skill list shows depends on
+   * where pi runs, not on which session is attached.
+   */
+  async refreshSkills(cwd: string, agentDir?: string): Promise<void> {
+    try {
+      const m = await this.conn.request<{ type: "proto.skills"; skills: SkillInfo[] }>({
+        type: "proto.skills",
+        cwd,
+        agentDir,
+      });
+      this.skills = m.skills;
+      this.skillsCwd = cwd;
+      this.emit();
+    } catch {
+      /* not fatal */
+    }
   }
 
   /** Resolve an extension dialog/select request; also dequeues the request by id. */
@@ -329,6 +355,8 @@ export class UipiClient {
 
   private async onConnect(): Promise<void> {
     void this.refreshRecentDirs();
+    // the switch to another session may switch cwd, and with it the skills
+    void this.syncSkillsForCwd();
     void this.refreshModels();
     await this.refreshSessions();
     this.emit();
@@ -344,8 +372,19 @@ export class UipiClient {
     this.runStateById.set(session.sessionId, session.isStreaming ? "streaming" : "idle");
     this.activeId = session.sessionId;
     void this.refreshModels();
+    void this.syncSkillsForCwd();
     this.emit();
     await this.refreshSessions();
+  }
+
+  /**
+   * Fetch skills for the active session's cwd, but only when that cwd differs
+   * from the one already loaded — every attach and every reconnect lands here.
+   */
+  private async syncSkillsForCwd(cwd?: string): Promise<void> {
+    const target = cwd ?? this.active?.cwd;
+    if (!target || target === this.skillsCwd) return;
+    await this.refreshSkills(target);
   }
 
   private setError(message: string): void {
@@ -407,6 +446,14 @@ export class UipiClient {
         this.liveEventsById.set(m.sessionId, []);
         this.sentMessagesById.set(m.sessionId, []);
         this.runStateById.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
+        // the attach names the session's cwd, which is what skills depend on
+        void this.syncSkillsForCwd(m.cwd);
+        break;
+      }
+      case "proto.skills": {
+        // request and reply share the discriminant: only the reply carries skills
+        if (!("skills" in m)) return;
+        this.skills = m.skills;
         break;
       }
       case "pi.evt": {

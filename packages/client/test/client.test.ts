@@ -7,7 +7,7 @@ import { UipiClient } from "../src/client.js";
 import { Conn, type WebSocketLike, type SocketFactory } from "../src/conn.js";
 import { deriveTranscript } from "../src/transcript.js";
 import { pathFor, hash8 } from "../src/route.js";
-import type { S2C, UiEvent } from "@uipi/protocol";
+import type { S2C, SkillInfo, UiEvent } from "@uipi/protocol";
 
 /** A fake server that answers commands like the real one does. */
 class FakeServer {
@@ -25,6 +25,11 @@ class FakeServer {
   thinkingLevel = "medium";
   tools = ["read"];
   statuses: Record<string, string> = {};
+  /** skills the fake server discovers for any cwd */
+  skills: SkillInfo[] = [
+    { name: "commit", description: "Write a commit message", scope: "user" },
+    { name: "deploy", description: "Deploy the project", scope: "project" },
+  ];
   private roleSwitchSeq = 0;
 
   respond(socket: FakeSocket, msg: Record<string, unknown>): void {
@@ -58,6 +63,9 @@ class FakeServer {
         break;
       case "proto/recentDirs":
         reply({ type: "proto.recentDirs", dirs: [{ path: "/proj" }] } as S2C);
+        break;
+      case "proto.skills":
+        reply({ type: "proto.skills", skills: this.skills } as S2C);
         break;
       case "proto.newSession":
       case "proto.openSession":
@@ -653,5 +661,26 @@ describe("UipiClient headless", () => {
       await flush();
       expect(client.active?.statuses).toEqual({});
     });
+  });
+  it("populates skills from the correlated proto.skills reply", async () => {
+    await client.newSession("/proj");
+    await client.refreshSkills("/proj");
+    expect(client.skills).toEqual([
+      { name: "commit", description: "Write a commit message", scope: "user" },
+      { name: "deploy", description: "Deploy the project", scope: "project" },
+    ]);
+  });
+
+  // The C2S request and the S2C reply share the `proto.skills` discriminant, so
+  // the handler has to narrow on the payload instead of dropping the frame.
+  it("applies a broadcast proto.skills reply instead of erroring", async () => {
+    const skills: SkillInfo[] = [
+      { name: "broadcast", description: "Pushed by the server", scope: "project" },
+    ];
+    server.sockets[0].push({ type: "proto.skills", skills } as S2C);
+    await flush();
+
+    expect(client.skills).toEqual(skills);
+    expect(client.error).toBeNull();
   });
 });

@@ -4,6 +4,14 @@
  * is not (it changes per server process), so the URL key is derived from the file.
  */
 
+/** The skills page route. Not a session: it has no hash to resolve. */
+export const SKILLS_PAGE = "/skills";
+
+/** True for routes that are pages of their own rather than a session. */
+export function isPagePath(p: string): boolean {
+  return p === SKILLS_PAGE;
+}
+
 export function hash8(path: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < path.length; i++) {

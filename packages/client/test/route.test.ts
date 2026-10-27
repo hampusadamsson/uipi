@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hash8, pathFor, hashFromPath } from "../src/route.js";
+import { hash8, pathFor, hashFromPath, isPagePath, SKILLS_PAGE } from "../src/route.js";
 
 describe("session URL routing", () => {
   const file = "/Users/hampus/.pi/agent/sessions/--tmp--/2026-10-25T09-13-59-697Z_01a1.jsonl";
@@ -29,5 +29,13 @@ describe("session URL routing", () => {
     expect(hashFromPath("/s/nope")).toBeUndefined();
     expect(hashFromPath("/s/0123456789")).toBeUndefined();
     expect(hashFromPath("/other/abcdef12")).toBeUndefined();
+  });
+
+  it("treats /skills as a page, not a session hash", () => {
+    expect(SKILLS_PAGE).toBe("/skills");
+    expect(isPagePath(SKILLS_PAGE)).toBe(true);
+    expect(isPagePath("/")).toBe(false);
+    expect(isPagePath(pathFor(file))).toBe(false);
+    expect(hashFromPath(SKILLS_PAGE)).toBeUndefined();
   });
 });

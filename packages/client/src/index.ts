@@ -8,6 +8,7 @@
  *  - {@link UipiClient}  session store, pi-event reducer, commands
  *  - {@link deriveTranscript} pi events → renderable transcript entries
  *  - {@link pathFor} / {@link hash8} / {@link hashFromPath}  `/s/<hash>` routing
+ *  - {@link SKILLS_PAGE} / {@link isPagePath}  non-session page routes
  *
  * The Svelte app in `@uipi/web` is a thin adapter over this; a TUI would be
  * another adapter using exactly the same API.
@@ -30,4 +31,4 @@ export {
 
 export { deriveTranscript, type TranscriptEntry, type ToolCallView } from "./transcript.js";
 
-export { hash8, pathFor, hashFromPath } from "./route.js";
+export { hash8, pathFor, hashFromPath, isPagePath, SKILLS_PAGE } from "./route.js";
