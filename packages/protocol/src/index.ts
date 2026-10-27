@@ -9,6 +9,37 @@
  *                 these payloads opaquely or map known event shapes)
  */
 
+/**
+ * A fixed, server-owned allowlist of editable config documents. The client
+ * names a document, never a path, so no request can reach `auth.json`,
+ * `mcp-auth.json` or anything under `sessions/` — the server maps the id to a
+ * path itself and cannot be talked out of that mapping.
+ */
+export type ConfigId = "settings" | "roles" | "sandbox" | "mcp";
+
+/**
+ * What a `proto.reloadConfig` request re-reads across live sessions. Only the
+ * documents pi can take on mid-session are here: `sandbox`/`mcp` are read at
+ * session start and have no reload of their own, so they are not offered.
+ */
+export type ReloadWhat = "settings" | "roles" | "skills";
+
+/**
+ * A raw config document plus the mtime it was read at. The client echoes the
+ * mtime back on save so the server can detect a concurrent edit instead of
+ * silently clobbering it.
+ */
+export interface ConfigDoc {
+  /**
+   * Which document this is. Named `docId`, not `id`: `S2CBase.id` is the
+   * transport's correlation id, and `Conn.request` stamps it onto the outgoing
+   * frame, so a payload field called `id` would be overwritten.
+   */
+  docId: ConfigId;
+  mtimeMs: number;
+  text: string;
+}
+
 // ---------- Client → Server ----------
 
 export type C2S =
@@ -33,6 +64,48 @@ export type C2S =
    * direction is unambiguous.
    */
   | { type: "proto.skills"; cwd: string; agentDir?: string }
+  /**
+   * List the editable config documents. Same discriminant as the reply, like
+   * `proto.recentDirs`: the request carries no payload, the reply carries the
+   * ids and mtimes, so the direction is unambiguous.
+   */
+  | { type: "proto.configList" }
+  /**
+   * Read one config document. Same discriminant as the reply (request has the
+   * docId, reply has the doc), so no request can name a path directly.
+   */
+  | { type: "proto.configGet"; docId: ConfigId }
+  /**
+   * Write one config document back. `mtimeMs` is the value the client last
+   * read; a mismatch means someone else edited the file and the server answers
+   * with `proto.configConflict` rather than overwriting it.
+   */
+  | { type: "proto.configUpdate"; docId: ConfigId; mtimeMs: number; text: string }
+  /**
+   * Re-read one config document on every live session.
+   *
+   * Reload is explicit, never implicit on save: pi reads its config at session
+   * start, so a silent reload would change a running agent mid-conversation. The
+   * user asks for it, and the server tells them which sessions it reached.
+   */
+  | { type: "proto.reloadConfig"; what: ReloadWhat }
+  /**
+   * Create, overwrite or remove one of pi's skills by name. The server resolves
+   * name → file (project or user scope) itself; no path crosses the wire.
+   */
+  | {
+      type: "proto.skillWrite";
+      op: "create" | "update" | "delete";
+      name: string;
+      frontmatter?: string;
+      body?: string;
+    }
+  /**
+   * Read one skill back. The editor needs the real file so it can round-trip
+   * keys it does not understand; `name` is a slug the server validates, never a
+   * path.
+   */
+  | { type: "proto.skillGet"; name: string }
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
@@ -170,6 +243,40 @@ export type S2C = S2CBase &
     | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
     | { type: "proto.recentDirs"; dirs: RecentDir[] }
     | { type: "proto.skills"; skills: SkillInfo[] }
+    /**
+     * Ids plus mtimes only: the editor needs the list to know what exists and
+     * whether a doc changed, without shipping every document's full text.
+     */
+    // entries keep `id`: it is nested inside `docs`, so the frame's top-level
+    // correlation `id` never reaches it
+    | { type: "proto.configList"; docs: { id: ConfigId; mtimeMs: number }[] }
+    | { type: "proto.configGet"; doc: ConfigDoc }
+    | { type: "proto.configUpdate"; doc: ConfigDoc }
+    /**
+     * Acknowledgements carry just the skill name the server acted on, so the UI
+     * can refresh that entry without refetching the whole skill list.
+     */
+    | { type: "proto.skillWrite"; name: string }
+    /**
+     * The real SKILL.md, split into its raw frontmatter lines and body, so the
+     * editor can show what is on disk instead of guessing at it.
+     */
+    | { type: "proto.skillGet"; name: string; frontmatter: string; body: string }
+    /**
+     * The write lost a race: `mtimeMs`/`text` are the current on-disk version,
+     * so the UI can show a diff or offer a reload instead of discarding work.
+     */
+    | { type: "proto.configConflict"; docId: ConfigId; mtimeMs: number; text: string }
+    | {
+        /**
+         * Ids of the live sessions the reload was applied to. Empty means there
+         * was nothing to reload — a success, not an error. Every target failing
+         * answers `proto.error` instead.
+         */
+        type: "proto.reloadConfig";
+        what: string;
+        sessions: string[];
+      }
     | { type: "proto.models"; models: ModelInfo[] }
     | {
         type: "proto.attached";
