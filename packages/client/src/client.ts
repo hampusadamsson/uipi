@@ -551,8 +551,9 @@ export class UipiClient {
         this.runActiveById.set(m.sessionId, m.isStreaming);
         if (m.isStreaming) this.runConfirmedById.set(m.sessionId, true);
         this.runStateById.set(m.sessionId, m.isStreaming ? "streaming" : "idle");
-        // the attach names the session's cwd, which is what skills depend on
-        void this.syncSkillsForCwd(m.cwd);
+        // only the active session's cwd drives the skills list: a background
+        // attach must not repaint it with another session's cwd
+        if (m.sessionId === this.activeId) void this.syncSkillsForCwd(m.cwd);
         break;
       }
       case "proto.skills": {

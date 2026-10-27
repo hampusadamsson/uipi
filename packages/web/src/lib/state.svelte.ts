@@ -25,6 +25,9 @@ import type {
 
 export type { RunState, TranscriptEntry, AttachedSession };
 
+/** Ids of the top-level pages the app can route to (besides the session view). */
+export type PageId = "skills";
+
 /**
  * True when the adapter's mirror already reflects `events`.
  *
@@ -126,6 +129,10 @@ export class UiState {
   skills = $state<SkillInfo[]>([]);
   /** the cwd the mirrored {@link skills} were discovered for */
   skillsCwd = $state<string | null>(null);
+  /** cwd the skills page is scoped to: discovered cwd, else the newest recent dir */
+  currentSkillsCwd(): string | null {
+    return this.skillsCwd ?? this.recentDirs[0] ?? null;
+  }
   activeId = $state<string | null>(null);
   /** which top-level view the URL names: a session view or the skills page */
   page = $state<"sessions" | "skills">("sessions");
@@ -253,7 +260,7 @@ export class UiState {
    * has been discovered yet. No cwd at all means nothing to ask pi about.
    */
   async refreshSkills(cwd?: string): Promise<void> {
-    const target = cwd ?? this.skillsCwd ?? this.attached.get(this.activeId ?? "")?.cwd;
+    const target = cwd ?? this.currentSkillsCwd() ?? this.attached.get(this.activeId ?? "")?.cwd;
     if (!target) return;
     await this.client.refreshSkills(target);
   }
@@ -373,8 +380,8 @@ export class UiState {
     this.page = isPagePath(location.pathname) ? "skills" : "sessions";
   }
 
-  /** Navigate to the skills page. */
-  goToPage(page: "skills"): void {
+  /** Navigate to a top-level page (the non-session views in App's `pages`). */
+  goToPage(page: PageId): void {
     history.pushState(null, "", SKILLS_PAGE);
     this.page = page;
   }

@@ -3,15 +3,15 @@ import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 
+/** absolute path to one of svelte's browser entry points, resolved beside this config */
+const svelteClient = (file: string) => path.resolve("./node_modules/svelte/src", file);
+
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   resolve: {
     alias: {
       $lib: path.resolve("./src/lib"),
     },
-    // tests run in happy-dom, so Svelte must resolve its browser entry: without
-    // this condition `mount` comes from svelte's server build and throws
-    conditions: ["browser"],
   },
   build: {
     // marked + the highlight.js grammars in $lib/highlight.ts put the single
@@ -29,5 +29,13 @@ export default defineConfig({
     include: ["test/**/*.test.ts"],
     environment: "happy-dom",
     server: { deps: { inline: ["svelte"] } },
+    // tests run in happy-dom, but Vitest resolves through node/ssr conditions, so
+    // `svelte` lands on the server build and `mount` throws. Alias just the
+    // browser entry points the tests use — test-scoped, so the build keeps Vite's
+    // default (browser) resolve conditions.
+    alias: [
+      { find: /^svelte$/, replacement: svelteClient("index-client.js") },
+      { find: /^svelte\/reactivity$/, replacement: svelteClient("reactivity/index-client.js") },
+    ],
   },
 });

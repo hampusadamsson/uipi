@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Attachment } from "@uipi/protocol";
-  import { ui, type RunState } from "./lib/state.svelte";
+  import { ui, type RunState, type PageId } from "./lib/state.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
   import SkillsPage from "./components/SkillsPage.svelte";
@@ -16,16 +16,17 @@
   import MenuIcon from "@lucide/svelte/icons/menu";
   import { toast } from "svelte-sonner";
 
-  // top-level tabs besides Sessions; adding a page is a row here plus a branch below
-  const pages = [{ id: "skills", label: "Skills" }];
+  // top-level tabs besides Sessions: an id here is also the page id selectTab
+  // routes to, so a row and its route can't disagree
+  const pages = [{ id: "skills", label: "Skills" }] as const;
 
   // the URL owns the selection: no separate tab state to drift from ui.page
   const activeTab = $derived(ui.page);
   const onSkills = $derived(ui.page === "skills");
 
   function selectTab(value: string) {
-    if (value === "skills") ui.goToPage("skills");
-    else ui.goToSessionsPage();
+    if (value === "sessions") ui.goToSessionsPage();
+    else ui.goToPage(value as PageId);
   }
 
   $effect(() => {
@@ -120,7 +121,7 @@
             variant="destructive"
             size="sm"
             class="text-xs shrink-0"
-            onclick={() => ui.cmd({ type: "pi.abort", sessionId: attach.sessionId })}>Stop</Button
+            onclick={() => ui.abort(attach.sessionId)}>Stop</Button
           >
         {/if}
       {:else}

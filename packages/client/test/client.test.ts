@@ -897,4 +897,38 @@ describe("UipiClient headless", () => {
     expect(client.skills).toEqual(skills);
     expect(client.error).toBeNull();
   });
+
+  // A background attach (a session that is not the active one) must not repaint
+  // the skills list with that session's cwd.
+  it("ignores a non-active session's attach when syncing skills", async () => {
+    await client.newSession("/proj");
+    await client.refreshSkills("/proj");
+    const loaded = client.skills;
+    const loadedCwd = (client as unknown as { skillsCwd: string | null }).skillsCwd;
+    expect(loadedCwd).toBe("/proj");
+
+    // anything discovery would show for the other cwd, in case it runs at all
+    server.skills = [{ name: "other", description: "Elsewhere", scope: "project" }];
+    server.sockets[0].push({
+      type: "proto.attached",
+      sessionId: "sess-2",
+      messages: [],
+      model: null,
+      thinkingLevel: "medium",
+      tools: [],
+      role: null,
+      commands: [],
+      statuses: {},
+      cwd: "/other",
+      isStreaming: false,
+      steering: [],
+      followUp: [],
+      sessionFile: "/home/u/.pi/agent/sessions/--other--/def.jsonl",
+    } as S2C);
+    await flush();
+    await flush();
+
+    expect(client.skills).toEqual(loaded);
+    expect((client as unknown as { skillsCwd: string | null }).skillsCwd).toBe("/proj");
+  });
 });

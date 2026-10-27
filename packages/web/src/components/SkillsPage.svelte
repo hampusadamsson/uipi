@@ -13,7 +13,7 @@
 
   // skills belong to a cwd, not a session: the discovered one wins, a recent dir
   // covers the case where nothing has been discovered yet
-  const cwd = $derived(ui.skillsCwd ?? ui.recentDirs[0] ?? null);
+  const cwd = $derived(ui.currentSkillsCwd());
   const noCwd = $derived(cwd === null);
   const sorted = $derived([...ui.skills].sort((a, b) => a.name.localeCompare(b.name)));
   const disabled = $derived(noCwd || busyName !== null);
