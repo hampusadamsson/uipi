@@ -26,7 +26,9 @@ Four packages, strictly layered — each depends only on the ones above it:
   No Svelte, no DOM, no browser globals. Page routes such as `/skills` live
   beside the session routes in the same route module.
 - `packages/server` — Node server, in-process pi SDK (`createAgentSessionRuntime`),
-  pi-native JSONL session persistence, extension UI host bridge.
+  pi-native JSONL session persistence, extension UI host bridge. Config files are
+  write-allowlisted by id (the browser names a document, never a path) and
+  conflict-checked by mtime, so a hand edit is never silently clobbered.
 - `packages/web` — Svelte 5 + Vite + Tailwind 4. A thin adapter: it mirrors
   `UipiClient` state into runes and renders shadcn-svelte components. It contains
   no protocol or reducer logic.
@@ -95,3 +97,6 @@ Server binds to 127.0.0.1 only.
 - Extension dialogs/selects as web modals
 - Skills page — pi's own skills for the active cwd; one click starts a session
   running that skill
+- Settings page (`/settings`) — General, Roles, Skills, Sandbox, MCP, Advanced:
+  edits pi's own config files with unknown-key preservation, an mtime conflict
+  check, a `.bak`, and an explicit post-save "Reload sessions"

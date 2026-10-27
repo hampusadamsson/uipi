@@ -96,12 +96,125 @@ export interface SkillInfo {
 - Scope collapses to two buckets. `temporary` skills (`--skill` paths) and
   anything else read as `user`, because the UI has no third chip.
 
+## Decided — settings and config editing
+
+**Invariant:** uipi never defines what pi already defines. pi exports no roles,
+sandbox or MCP config API, so this feature bends that rule once, deliberately,
+and pays for it with an id allowlist and an mtime check.
+
+- **A page, not a dialog.** `/settings` is a real route (`SETTINGS_PAGE`,
+  `pageIdFromPath` in `@uipi/client`'s route module) rendered as a
+  `SettingsPage` with a left sub-nav: General, Roles, Skills, Sandbox, MCP,
+  Advanced. The tab comes from the same `pages` registry in `App.svelte` the
+  skills page uses, so adding a page stays a data row plus one branch.
+- **Deliberate exception to "pi defines it".** pi exports no roles/sandbox/mcp
+  API — zero hits for those filenames in pi's `dist`, and `roles.json` is read by
+  the user's own extension — so uipi **does** edit those files. But only against
+  the documented schema, and a save always preserves unknown keys (the form
+  spreads the parsed document, the skill writer merges raw frontmatter lines), so
+  an extension that grows a field is not silently deleted from. `settings.json`
+  is read and written the same way (opaque text, so pi's own normalisation cannot
+  drop a key uipi did not understand), and is re-read through pi's own
+  `settingsManager.reload()` where a session exists.
+- **Allowlist: an id, never a path.** The browser names a `ConfigId`
+  (`settings | roles | sandbox | mcp`). `CONFIG_FILES` is the only id → filename
+  map and `configPath` the only producer of a path, `Object.hasOwn` guarded, so
+  `auth.json`, `mcp-auth.json` and `sessions/` are unreachable by construction —
+  not by a check someone has to remember.
+- **Concurrency: echo the mtime.** Every load carries the document's `mtimeMs`;
+  a save echoes it, and a file changed underneath answers `proto.configConflict`
+  with the on-disk text instead of clobbering a hand edit (the form keeps the
+  user's draft and offers a reload). Writes are atomic (tmp + rename) with a
+  single `.bak`, taken before the replace.
+- **Skills CRUD: user scope, slug only.** Create/update/delete/duplicate on user
+  skills; the name is validated as a lowercase slug and the resolved path must
+  stay inside `<agentDir>/skills/`. Delete names the exact file in a confirmation
+  and removes only a skill dir it emptied. Project-scope skills are listed
+  read-only: `proto.skillWrite` is user-scope only, and a same-named user skill
+  would otherwise be written over.
+- **Reload is explicit, never automatic.** A post-save strip offers "Reload
+  sessions": `settingsManager.reload` for settings, the roles extension's own
+  `/role reload` plus a `proto.sessionState` re-broadcast for roles,
+  `resourceLoader.reload` for skills. `sandbox`/`mcp` get a note that pi reads
+  them at session start instead. A save never reloads: that changes a running
+  agent mid-conversation.
+- **Advanced is read-only.** `zentui.json`, `subagents.json` and
+  `web-search.json` are extension-owned; the section says so and edits nothing.
+
+### Protocol
+
+```ts
+// C2S — new. Each request shares its reply's discriminant: the request names a
+// document, the reply carries it.
+| { type: "proto.configList" }
+| { type: "proto.configGet"; docId: ConfigId }
+| { type: "proto.configUpdate"; docId: ConfigId; mtimeMs: number; text: string }
+| { type: "proto.reloadConfig"; what: ReloadWhat }
+| {
+    type: "proto.skillWrite";
+    op: "create" | "update" | "delete";
+    name: string;
+    frontmatter?: string;
+    body?: string;
+  }
+| { type: "proto.skillGet"; name: string }
+
+// S2C — new
+| { type: "proto.configList"; docs: { id: ConfigId; mtimeMs: number }[] }
+| { type: "proto.configGet"; doc: ConfigDoc }
+| { type: "proto.configUpdate"; doc: ConfigDoc }
+| { type: "proto.configConflict"; docId: ConfigId; mtimeMs: number; text: string }
+| { type: "proto.reloadConfig"; what: string; sessions: string[] }
+| { type: "proto.skillWrite"; name: string }
+| { type: "proto.skillGet"; name: string; frontmatter: string; body: string }
+
+type ConfigId = "settings" | "roles" | "sandbox" | "mcp";
+type ReloadWhat = "settings" | "roles" | "skills";
+
+// `docId`, not `id`: S2CBase.id is the transport's correlation id and
+// Conn.request stamps it onto the outgoing frame.
+interface ConfigDoc {
+  docId: ConfigId;
+  mtimeMs: number;
+  text: string;
+}
+```
+
+### Shipped with settings (v1.3)
+
+- Protocol: `ConfigId`, `ReloadWhat`, `ConfigDoc`, config/skill/reload messages
+- Server: `config.ts` (id allowlist, list/read/write, shared
+  `atomicWriteWithBackup`), `skills-write.ts` (slug + containment, create /
+  update / delete / read, raw-line frontmatter merge), `reloadConfig` per live
+  session with `broadcastSessionState` as one source for `proto.sessionState`
+- Client: `configDocs` / `configConflicts` maps, `loadConfig` / `saveConfig` /
+  `reloadConfig`, `writeSkill` / `readSkill` plus a forced skills re-fetch,
+  `SETTINGS_PAGE` / `pageIdFromPath` / `PageId`
+- Web: `SettingsPage` with sub-nav and per-section forms over one JSON draft,
+  `JsonEditor` raw fallback, `ConfigSection` (load / save / revert / conflict
+  banner), `SkillsSection` (list, edit, new, duplicate, delete, project read-only),
+  `ReloadStrip`
+- Tests: `config.test.ts` (allowlist, validation-before-write, conflict, backup),
+  `config-transport.test.ts` (a correlated frame still resolves the named doc),
+  `reload-config.test.ts` (per-target reload, one failure does not abort the
+  rest), `skills-write.test.ts` (slug rule, preconditions, key preservation),
+  client config/skill/reload cases, `settings-nav.svelte.test.ts`,
+  `reload-strip.svelte.test.ts`
+
+### Known limits (accepted)
+
+- A skill's **body** is loaded on demand via `proto.skillGet`; the list is still
+  pi's discovery output, so the editor shows guessed values until the read lands.
+- `sandbox` and `mcp` are raw-JSON only — their nested per-tool maps have no form
+  that covers them.
+- No project-skill editing: project scope is listed, never written.
+- No rename. A rename is delete + create, done by hand.
+
 ## Next (v2, not yet designed)
 
 - Extension custom-widget portals (iframe/containers)
 - Image/file upload from browser
 - Usage/token cost display
-- Settings/config editor UI
 - Browser-side directory tree picker for cwd
 - Generic custom-entry rendering (`subagents`, todos, …) via the entry-renderer
   registry
