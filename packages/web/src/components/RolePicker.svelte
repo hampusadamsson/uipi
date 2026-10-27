@@ -2,6 +2,7 @@
   import { ui, rolePickerItems } from "$lib/state.svelte";
   import * as Popover from "$lib/components/ui/popover/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import TagIcon from "@lucide/svelte/icons/tag";
 
   let { sessionId }: { sessionId: string } = $props();
   let open = $state(false);
@@ -9,7 +10,6 @@
   let loading = $state(false);
 
   const cur = $derived(ui.roleOf(sessionId));
-  const chip = $derived(ui.roleChip(sessionId));
   const items = $derived(rolePickerItems(names, cur));
 
   // Ask on every open: the names come from the `/role` command's own argument
@@ -48,12 +48,13 @@
   }
 </script>
 
-{#if chip}
+{#if cur}
   <Popover.Root bind:open>
     <Popover.Trigger>
       {#snippet child({ props })}
         <Button {...props} variant="outline" size="sm" class="text-xs font-normal shrink-0">
-          {chip}
+          <TagIcon class="size-3.5" />
+          {cur}
         </Button>
       {/snippet}
     </Popover.Trigger>

@@ -141,7 +141,7 @@ describe("custom entry rendering", () => {
     });
     const system = entries.filter((e) => e.kind === "system");
     expect(system).toHaveLength(1);
-    expect(system[0].text).toBe("◆ role → architect");
+    expect(system[0].text).toBe("role → architect");
     expect(system[0].text.split("\n")).toHaveLength(1);
     expect(system[0].id).toBe("role-e1");
   });
@@ -151,7 +151,7 @@ describe("custom entry rendering", () => {
       messages: [userMsg, roleSwitch("architect")],
       events: [],
     });
-    expect(entries.some((e) => e.text === "◆ role → architect")).toBe(true);
+    expect(entries.some((e) => e.text === "role → architect")).toBe(true);
   });
 
   it("suppresses a role-switch that precedes the first user message", () => {
@@ -181,7 +181,7 @@ describe("custom entry rendering", () => {
       events: [{ type: "entry_appended", entry: { ...roleSwitch("architect"), id: "live-1" } }],
     });
     const system = entries.filter((e) => e.kind === "system");
-    expect(system.map((e) => e.text)).toEqual(["◆ role → architect"]);
+    expect(system.map((e) => e.text)).toEqual(["role → architect"]);
     expect(system[0].id).toBe("role-live-1");
     expect(entries.some((e) => e.id === "role-startup")).toBe(false);
     // the user message that separates the two is still there
@@ -197,7 +197,7 @@ describe("custom entry rendering", () => {
       sentMessages: ["switch me"],
     });
     const system = entries.filter((e) => e.kind === "system");
-    expect(system.map((e) => e.text)).toEqual(["◆ role → architect"]);
+    expect(system.map((e) => e.text)).toEqual(["role → architect"]);
     expect(entries.some((e) => e.role === "user" && e.text === "switch me")).toBe(true);
   });
 
@@ -207,7 +207,7 @@ describe("custom entry rendering", () => {
       events: [{ type: "entry_appended", entry: roleSwitch(null) }],
     });
     const system = entries.find((e) => e.kind === "system");
-    expect(system!.text).toBe("◆ role → none");
+    expect(system!.text).toBe("role → none");
   });
 
   it("renders nothing for an unknown customType", () => {

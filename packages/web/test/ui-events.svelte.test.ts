@@ -162,7 +162,7 @@ describe("one role switch → one toastable notification", () => {
     } as S2C);
     sync(ui);
 
-    expect(ui.roleChip("s1")).toBe("◆ architect");
+    expect(ui.roleOf("s1")).toBe("architect");
     expect(drain(ui)).toEqual([]); // acknowledgement, not a toast
     expect(ui.uiEvents).toHaveLength(0); // and it is still drained
   });

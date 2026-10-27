@@ -10,6 +10,12 @@ export default defineConfig({
       $lib: path.resolve("./src/lib"),
     },
   },
+  build: {
+    // marked + the highlight.js grammars in $lib/highlight.ts put the single
+    // bundle past Vite's 500 kB default. It is one self-hosted local app, so
+    // code-splitting it would trade a warning for a loading waterfall.
+    chunkSizeWarningLimit: 700,
+  },
   server: {
     port: 5173,
     proxy: {

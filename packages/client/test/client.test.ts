@@ -562,7 +562,7 @@ describe("UipiClient headless", () => {
       expect(client.effectiveModel("sess-1")).toEqual({ provider: "p", modelId: "m2" });
     });
 
-    it("renders ◆ role → architect after the extension's entry_appended", async () => {
+    it("renders role → architect after the extension's entry_appended", async () => {
       server.role = "work";
       await client.newSession("/proj");
       client.cmd({ type: "proto.setRole", sessionId: "sess-1", role: "architect" });
@@ -578,7 +578,7 @@ describe("UipiClient headless", () => {
       });
       const system = entries.filter((e) => e.kind === "system");
       expect(system).toHaveLength(1);
-      expect(system[0].text).toBe("◆ role → architect");
+      expect(system[0].text).toBe("role → architect");
     });
 
     it("a sessionState with role: null clears the role (chip) state", async () => {

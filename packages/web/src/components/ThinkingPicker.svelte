@@ -3,6 +3,7 @@
   import * as Popover from "$lib/components/ui/popover/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
+  import BrainIcon from "@lucide/svelte/icons/brain";
   import type { Attachment } from "@uipi/protocol";
 
   let { sessionId }: { sessionId: string } = $props();
@@ -26,7 +27,8 @@
   <Popover.Trigger>
     {#snippet child({ props })}
       <Button {...props} variant="outline" size="sm" class="text-xs font-normal">
-        🧠 {cur || "thinking"}
+        <BrainIcon class="size-3.5" />
+        {cur || "thinking"}
       </Button>
     {/snippet}
   </Popover.Trigger>

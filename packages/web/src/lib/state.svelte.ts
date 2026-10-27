@@ -11,6 +11,7 @@ import {
   type WebSocketLike,
   deriveTranscript,
 } from "@uipi/client";
+import { renderMarkdown } from "./markdown.js";
 import type { C2S, ModelInfo, SessionSummary, UiEvent, UiNotification } from "@uipi/protocol";
 
 export type { RunState, TranscriptEntry, AttachedSession };
@@ -33,7 +34,8 @@ function sameUiEvents(a: readonly UiEvent[], b: readonly UiEvent[]): boolean {
  * Suppression keys off the server-assigned `origin` tag, not the message text:
  * the extension owns the wording (and appends warning suffixes), and the server
  * is the only place that knows a notification was caused by a uipi command. A
- * status slot can't stand in for it — statuses mirror *state* (`◆ role`) and are
+ * status slot can't stand in for it — statuses mirror *state* (the active role)
+ * and are
  * broadcast on their own schedule, so they say nothing about which notification
  * frames belong to the confirmation. The header chip already shows the role, so
  * `setRole` confirmations are pure noise here; anything an extension raises on
@@ -172,12 +174,6 @@ export class UiState {
     return typeof role === "string" && role.trim() !== "" ? role : null;
   }
 
-  /** Exactly what the header chip renders (`◆ <role>`), or null for nothing. */
-  roleChip(sessionId: string | null): string | null {
-    const role = this.roleOf(sessionId);
-    return role ? `◆ ${role}` : null;
-  }
-
   /** Discoverable slash commands (extension, prompt templates, skills) of a session. */
   commandsOf(sessionId: string | null): { name: string; description?: string }[] {
     if (!sessionId) return [];
@@ -205,6 +201,19 @@ export class UiState {
       events: this.liveEvents.get(sessionId) ?? [],
       sentMessages: this.sentMessages.get(sessionId) ?? [],
     });
+  }
+
+  /**
+   * HTML body for a transcript entry, or null when it should render as plain
+   * text. Only what the *agent* wrote is markdown: the user's own message is
+   * echoed back verbatim so it always looks exactly as typed, and system rows
+   * (role switches, compaction) are single generated lines, not prose.
+   */
+  entryHtml(entry: TranscriptEntry): string | null {
+    if (entry.kind !== "message" || entry.role !== "assistant" || entry.text.length === 0) {
+      return null;
+    }
+    return renderMarkdown(entry.text);
   }
 
   // ------------------------------------------------------------- commands

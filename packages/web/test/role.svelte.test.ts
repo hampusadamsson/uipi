@@ -64,14 +64,14 @@ function sync(ui: UiState): void {
 }
 
 describe("role chip (header)", () => {
-  it("renders ◆ <role> from proto.attached", () => {
+  it("renders the role name from proto.attached", () => {
     const { ui } = setup({ role: "architect" });
-    expect(ui.roleChip("s1")).toBe("◆ architect");
+    expect(ui.roleOf("s1")).toBe("architect");
   });
 
   it("a proto.sessionState switch updates what the chip renders", () => {
     const { ui, c } = setup();
-    expect(ui.roleChip("s1")).toBeNull(); // roleless to start
+    expect(ui.roleOf("s1")).toBeNull(); // roleless to start
 
     c.handle({
       type: "proto.sessionState",
@@ -85,7 +85,6 @@ describe("role chip (header)", () => {
     sync(ui);
 
     expect(ui.roleOf("s1")).toBe("local");
-    expect(ui.roleChip("s1")).toBe("◆ local");
   });
 
   it("role null renders nothing", () => {
@@ -102,7 +101,6 @@ describe("role chip (header)", () => {
     sync(ui);
 
     expect(ui.roleOf("s1")).toBeNull();
-    expect(ui.roleChip("s1")).toBeNull();
   });
 
   it("has no drift notion: a model change leaves the chip alone", () => {
@@ -117,7 +115,7 @@ describe("role chip (header)", () => {
       commands: [],
     } as S2C);
     sync(ui);
-    expect(ui.roleChip("s1")).toBe("◆ architect");
+    expect(ui.roleOf("s1")).toBe("architect");
   });
 });
 

@@ -2,6 +2,8 @@
   import { ui, sessionRoleText } from "$lib/state.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
+  import PlusIcon from "@lucide/svelte/icons/plus";
+  import TagIcon from "@lucide/svelte/icons/tag";
 
   let { onAfterSelect }: { onAfterSelect?: () => void } = $props();
 
@@ -32,7 +34,7 @@
 >
   <div class="px-3 py-2 flex items-center justify-between">
     <span class="font-semibold text-sm text-primary">uipi</span>
-    <Button size="sm" onclick={() => (ui.wantNew = true)}>＋ New</Button>
+    <Button size="sm" onclick={() => (ui.wantNew = true)}><PlusIcon /> New</Button>
   </div>
   <Separator />
   {#if !ui.connected}
@@ -74,7 +76,10 @@
           <span class="shrink-0">{fmtDate(s.mtime)}</span>
           <span class="truncate">{s.cwd}</span>
           {#if role}
-            <span class="shrink-0 text-[10px] opacity-70" title="role">◆ {role}</span>
+            <span
+              class="shrink-0 text-[10px] opacity-70 inline-flex items-center gap-0.5"
+              title="role"><TagIcon class="size-2.5" />{role}</span
+            >
           {/if}
           {#if ui.contextTokens.get(s.sessionId)}
             <span class="shrink-0"

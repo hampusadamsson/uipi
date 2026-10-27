@@ -139,12 +139,12 @@ function suppressBeforeFirstUser(entries: TranscriptEntry[]): TranscriptEntry[] 
   });
 }
 
-/** role-switch: `◆ role → architect`. One line, no role → `none`. */
+/** role-switch: `role → architect`. One line, no role → `none`. */
 function roleSwitchEntry(entry: CustomEntryView, index: number): TranscriptEntry {
   const role = (entry.data as { role?: string | null } | undefined)?.role ?? "none";
   return {
     kind: "system",
-    text: `◆ role → ${role}`,
+    text: `role → ${role}`,
     thinking: "",
     thinkingActive: false,
     toolCalls: [],

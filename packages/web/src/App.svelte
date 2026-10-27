@@ -11,6 +11,7 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Toaster } from "$lib/components/ui/sonner/index.js";
+  import MenuIcon from "@lucide/svelte/icons/menu";
   import { toast } from "svelte-sonner";
 
   $effect(() => {
@@ -69,7 +70,7 @@
           size="icon-sm"
           class="md:hidden shrink-0"
           aria-label="Menu"
-          onclick={toggleSidebar}>☰</Button
+          onclick={toggleSidebar}><MenuIcon /></Button
         >
         <span class="text-sm font-semibold truncate hidden sm:inline">{attach.cwd}</span>
         <span class="text-xs text-muted-foreground truncate sm:hidden">

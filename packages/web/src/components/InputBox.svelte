@@ -3,6 +3,7 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
+  import XIcon from "@lucide/svelte/icons/x";
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -117,8 +118,9 @@
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
             aria-label="Cancel steering message"
             onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}
-            >×</button
           >
+            <XIcon class="size-3" />
+          </button>
         </Badge>
       {/each}
       {#each followUp as f, i (i)}
@@ -128,8 +130,10 @@
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
             aria-label="Cancel follow-up message"
             onclick={() =>
-              ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}>×</button
+              ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}
           >
+            <XIcon class="size-3" />
+          </button>
         </Badge>
       {/each}
     </div>
@@ -139,13 +143,15 @@
       class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1"
     >
       {#each acItems as s, i (s)}
-        <div
-          class="text-xs px-3 py-2 cursor-pointer min-h-9 {i === acIndex ? 'bg-accent' : ''}"
+        <button
+          class="w-full text-left text-xs px-3 py-2 cursor-pointer min-h-9 {i === acIndex
+            ? 'bg-accent'
+            : ''}"
           onmouseenter={() => (acIndex = i)}
           onclick={acceptAc}
         >
           {s}
-        </div>
+        </button>
       {/each}
     </div>
   {/if}

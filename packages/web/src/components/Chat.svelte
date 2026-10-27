@@ -4,6 +4,7 @@
   import Message from "./Message.svelte";
   import InputBox from "./InputBox.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -61,7 +62,7 @@
       size="icon-sm"
       class="absolute bottom-3 right-3 shadow-md rounded-full"
       aria-label="Scroll to latest"
-      onclick={scrollToBottom}>↓</Button
+      onclick={scrollToBottom}><ArrowDownIcon /></Button
     >
   {/if}
 </div>

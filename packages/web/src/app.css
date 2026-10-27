@@ -121,3 +121,156 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Markdown rendered in chat bubbles (`$lib/markdown.ts` emits plain HTML, so
+ * this is the only place its look is decided). Element selectors are used on
+ * purpose: the HTML comes from a parser, not from Svelte templates, so utility
+ * classes can't be attached at the source.
+ */
+@layer components {
+  .md {
+    @apply leading-relaxed;
+  }
+  .md > :first-child {
+    margin-top: 0;
+  }
+  .md > :last-child {
+    margin-bottom: 0;
+  }
+  .md p,
+  .md ul,
+  .md ol,
+  .md blockquote,
+  .md pre,
+  .md table {
+    @apply my-2;
+  }
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4,
+  .md h5,
+  .md h6 {
+    @apply mt-4 mb-1.5 font-semibold leading-snug;
+  }
+  .md h1 {
+    @apply text-base;
+  }
+  .md h2 {
+    @apply text-[0.95rem];
+  }
+  .md h3,
+  .md h4,
+  .md h5,
+  .md h6 {
+    @apply text-sm;
+  }
+  .md ul {
+    @apply list-disc pl-5;
+  }
+  .md ol {
+    @apply list-decimal pl-5;
+  }
+  .md li {
+    @apply my-0.5;
+  }
+  .md li > p {
+    @apply my-0;
+  }
+  /* GFM task lists */
+  .md li:has(> input[type="checkbox"]) {
+    @apply list-none -ml-5 pl-5;
+  }
+  .md input[type="checkbox"] {
+    @apply mr-1.5 align-middle;
+  }
+  .md blockquote {
+    @apply border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .md hr {
+    @apply my-3 border-border;
+  }
+  .md a {
+    @apply text-primary underline underline-offset-2 break-words;
+  }
+  .md strong {
+    @apply font-semibold;
+  }
+  .md img {
+    @apply max-w-full rounded-md;
+  }
+  /* inline code — the block form lives inside <pre>, see below */
+  .md :not(pre) > code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words;
+  }
+  .md pre {
+    @apply overflow-x-auto rounded-md border border-border bg-muted/50 px-3 py-2 text-xs;
+  }
+  .md pre code {
+    @apply bg-transparent p-0 font-mono whitespace-pre;
+  }
+  .md table {
+    @apply block w-full overflow-x-auto border-collapse text-xs;
+  }
+  .md th,
+  .md td {
+    @apply border border-border px-2 py-1 text-left align-top;
+  }
+  .md th {
+    @apply bg-muted/50 font-semibold;
+  }
+
+  /*
+   * highlight.js tokens, mapped onto the shadcn palette instead of shipping a
+   * third-party theme stylesheet (one that would fight the dark/light tokens).
+   */
+  .hljs-comment,
+  .hljs-quote {
+    @apply text-muted-foreground italic;
+  }
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal,
+  .hljs-section,
+  .hljs-doctag,
+  .hljs-type,
+  .hljs-name,
+  .hljs-strong {
+    @apply font-semibold;
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-addition,
+  .hljs-attribute,
+  .hljs-meta .hljs-string {
+    @apply text-emerald-600 dark:text-emerald-400;
+  }
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-link,
+  .hljs-selector-attr,
+  .hljs-selector-pseudo {
+    @apply text-amber-600 dark:text-amber-400;
+  }
+  .hljs-title,
+  .hljs-title.class_,
+  .hljs-title.function_,
+  .hljs-built_in,
+  .hljs-attr {
+    @apply text-sky-600 dark:text-sky-400;
+  }
+  .hljs-meta,
+  .hljs-tag {
+    @apply text-violet-600 dark:text-violet-400;
+  }
+  .hljs-deletion {
+    @apply text-destructive;
+  }
+  .hljs-emphasis {
+    @apply italic;
+  }
+}

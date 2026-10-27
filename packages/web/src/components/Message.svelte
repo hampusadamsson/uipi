@@ -1,16 +1,20 @@
 <script lang="ts">
   import type { TranscriptEntry } from "@uipi/client";
+  import { ui } from "$lib/state.svelte";
   import ToolCall from "./ToolCall.svelte";
   import { Card, CardContent } from "$lib/components/ui/card/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
+  import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 
   let { entry }: { entry: TranscriptEntry } = $props();
   let thinkOpen = $state(false);
 
   const isUser = $derived(entry.role === "user");
   const isAssistant = $derived(entry.role === "assistant");
+  // Sanitized in $lib/markdown.ts; null means "render the text as-is".
+  const html = $derived(ui.entryHtml(entry));
 </script>
 
 <div class="my-2">
@@ -27,7 +31,9 @@
           <Collapsible.Trigger
             class="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground min-h-8"
           >
-            <span class="{thinkOpen ? 'rotate-90' : ''} transition-transform">▶</span>
+            <ChevronRightIcon
+              class="size-3 shrink-0 transition-transform {thinkOpen ? 'rotate-90' : ''}"
+            />
             <Badge variant="outline" class="font-normal">
               {entry.thinkingActive ? "thinking…" : "thought for a bit"}
             </Badge>
@@ -43,7 +49,10 @@
       {:else if entry.thinkingActive}
         <div class="text-xs text-muted-foreground animate-pulse my-1">thinking…</div>
       {/if}
-      {#if entry.text}
+      {#if html !== null}
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized in $lib/markdown.ts -->
+        <div class="md text-sm break-words">{@html html}</div>
+      {:else if entry.text}
         <div class="text-sm whitespace-pre-wrap break-words">{entry.text}</div>
       {/if}
       {#each entry.toolCalls as tc (tc.id)}
