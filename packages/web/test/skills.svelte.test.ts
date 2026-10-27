@@ -94,6 +94,18 @@ describe("startSkill", () => {
     expect(calls.sendPrompt).toEqual([["s2", "/skill:demo"]]);
   });
 
+  it("lands on the new session's chat even when started from /skills", async () => {
+    history.replaceState(null, "", "/skills");
+    const { ui } = setup("/proj");
+    const calls = record(ui);
+
+    await ui.startSkill({ name: "demo" });
+
+    expect(calls.sendPrompt).toEqual([["s2", "/skill:demo"]]);
+    expect(ui.page).toBe("sessions");
+    expect(location.pathname).toBe(UiState.pathFor("/tmp/s2.jsonl"));
+  });
+
   it("falls back to the most recent dir when no session is active", async () => {
     const ui = new UiState();
     const c = ui.client as unknown as Internals;

@@ -283,6 +283,9 @@ export class UiState {
     await this.newSession(cwd);
     const id = this.activeId;
     if (!id) return;
+    // syncUrl() leaves page routes alone, so navigate explicitly: the user must
+    // land on the new session's chat with the run already streaming.
+    this.goToSessionsPage();
     this.sendPrompt(id, `/skill:${skill.name}`);
   }
 
