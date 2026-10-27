@@ -3,12 +3,13 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { C2S, S2C, SessionSummary } from "@uipi/protocol";
+import type { C2S, S2C, SessionSummary, SkillInfo } from "@uipi/protocol";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   createAgentSessionRuntime,
   getAgentDir,
+  loadSkills,
   SessionManager,
   type AgentSession,
   type AgentSessionRuntime,
@@ -70,6 +71,10 @@ export class SessionService {
       }
       case "proto/recentDirs": {
         reply({ type: "proto.recentDirs", dirs: this.recentDirs.map((d) => ({ path: d })) });
+        break;
+      }
+      case "proto.skills": {
+        reply({ type: "proto.skills", skills: discoverSkills(msg.cwd, msg.agentDir) });
         break;
       }
       case "proto.newSession": {
@@ -658,6 +663,43 @@ export function discoverCommands(session: AgentSession): CommandInfo[] {
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   } catch {
     // display-only: a broken discovery source must never break attach or a broadcast
+    return [];
+  }
+}
+
+/** One skill pi discovers for a cwd, as the protocol carries it. */
+type SkillScope = SkillInfo["scope"];
+
+/**
+ * pi's own skills for one cwd, read through pi's loader so the web list matches
+ * what the terminal would show: user skills from the agent dir plus project
+ * skills from `<cwd>/.pi/skills` (`includeDefaults: true`).
+ *
+ * Scope collapses to the protocol's two buckets: only a genuine project skill is
+ * "project"; `temporary` (explicit `--skill` paths) and anything else read as
+ * "user", because the UI has no third chip for them.
+ *
+ * Sorted by name so the list order is stable between requests.
+ *
+ * Display-only: any failure yields `[]` — an empty list beats a broken request.
+ */
+export function discoverSkills(cwd: string, agentDir?: string): SkillInfo[] {
+  try {
+    const { skills } = loadSkills({
+      cwd,
+      agentDir: agentDir && agentDir.trim() ? resolveAgentDir(agentDir) : getAgentDir(),
+      skillPaths: [],
+      includeDefaults: true,
+    });
+    return skills
+      .map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        scope: (skill.sourceInfo.scope === "project" ? "project" : "user") as SkillScope,
+      }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  } catch {
+    // display-only: a broken skills scan must never break the request
     return [];
   }
 }
