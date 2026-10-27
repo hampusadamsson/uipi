@@ -7,7 +7,7 @@ import { UipiClient } from "../src/client.js";
 import { Conn, type WebSocketLike, type SocketFactory } from "../src/conn.js";
 import { deriveTranscript } from "../src/transcript.js";
 import { pathFor, hash8 } from "../src/route.js";
-import type { S2C, SkillInfo, UiEvent } from "@uipi/protocol";
+import type { ConfigId, S2C, SkillInfo, UiEvent } from "@uipi/protocol";
 
 /** A fake server that answers commands like the real one does. */
 class FakeServer {
@@ -30,7 +30,50 @@ class FakeServer {
     { name: "commit", description: "Write a commit message", scope: "user" },
     { name: "deploy", description: "Deploy the project", scope: "project" },
   ];
+  /** skill files the fake server can hand back, keyed by slug */
+  skillFiles = new Map<string, { frontmatter: string; body: string }>([
+    ["commit", { frontmatter: "name: commit\ndisable-model-invocation: true", body: "Body.\n" }],
+  ]);
+  /** editable config documents, keyed by the server-owned id */
+  configs = new Map<ConfigId, { mtimeMs: number; text: string }>([
+    ["settings", { mtimeMs: 1000, text: '{\n  "model": "p/m"\n}\n' }],
+    ["roles", { mtimeMs: 2000, text: '{\n  "work": {}\n}\n' }],
+  ]);
+  /** last proto.configUpdate the client sent, for mtime assertions */
+  lastConfigUpdate: { docId: ConfigId; mtimeMs: number; text: string } | null = null;
+  /** raw proto.configGet frames the fake server received, correlation id and all */
+  configGetFrames: Record<string, unknown>[] = [];
+  /** last proto.skillWrite the client sent */
+  lastSkillWrite: {
+    op: string;
+    name: string;
+    frontmatter?: string;
+    body?: string;
+  } | null = null;
+  /** every proto.reloadConfig the client sent, in order */
+  reloads: string[] = [];
+  /** live session ids a reload reaches (the server reports what it applied to) */
+  liveSessions: string[] = ["sess-1"];
+  /** what a reload throws, or null when it succeeds */
+  reloadError: string | null = null;
   private roleSwitchSeq = 0;
+
+  /** Another editor touched a document: the next save must lose the race. */
+  externalEdit(id: ConfigId, text: string): void {
+    const cur = this.configs.get(id)!;
+    this.configs.set(id, { mtimeMs: cur.mtimeMs + 500, text });
+  }
+
+  /** Push a conflict frame on the wire (uncorrelated), for broadcast handling. */
+  emitConflict(id: ConfigId): void {
+    const cur = this.configs.get(id)!;
+    this.sockets[0]?.push({
+      type: "proto.configConflict",
+      docId: id,
+      mtimeMs: cur.mtimeMs,
+      text: cur.text,
+    } as S2C);
+  }
 
   respond(socket: FakeSocket, msg: Record<string, unknown>): void {
     const reply = (m: S2C) =>
@@ -67,6 +110,85 @@ class FakeServer {
       case "proto.skills":
         reply({ type: "proto.skills", skills: this.skills } as S2C);
         break;
+      case "proto.skillWrite": {
+        // real server: resolve name → file itself, write, then ack the name
+        this.lastSkillWrite = {
+          op: String(msg.op),
+          name: String(msg.name),
+          ...(msg.frontmatter !== undefined ? { frontmatter: String(msg.frontmatter) } : {}),
+          ...(msg.body !== undefined ? { body: String(msg.body) } : {}),
+        };
+        const name = String(msg.name);
+        if (msg.op === "delete") this.skills = this.skills.filter((s) => s.name !== name);
+        else if (!this.skills.some((s) => s.name === name)) {
+          this.skills = [...this.skills, { name, description: "Written", scope: "project" }];
+        }
+        reply({ type: "proto.skillWrite", name } as S2C);
+        break;
+      }
+      case "proto.skillGet": {
+        // real server: resolve the slug itself, answer proto.error when missing
+        const name = String(msg.name);
+        const file = this.skillFiles.get(name);
+        if (!file) {
+          reply({ type: "proto.error", message: `skill ${name} does not exist` } as S2C);
+          break;
+        }
+        reply({ type: "proto.skillGet", name, ...file } as S2C);
+        break;
+      }
+      case "proto.configList":
+        reply({
+          type: "proto.configList",
+          docs: [...this.configs].map(([id, d]) => ({ id, mtimeMs: d.mtimeMs })),
+        } as S2C);
+        break;
+      case "proto.configGet": {
+        this.configGetFrames.push(msg);
+        const id = msg.docId as ConfigId;
+        const cur = this.configs.get(id)!;
+        reply({ type: "proto.configGet", doc: { docId: id, ...cur } } as S2C);
+        break;
+      }
+      case "proto.reloadConfig": {
+        // real server: re-read the document on every live session and reply with
+        // the ids it reached — an empty list means there was nothing live
+        this.reloads.push(String(msg.what));
+        if (this.reloadError !== null) {
+          reply({ type: "proto.error", message: this.reloadError } as S2C);
+          break;
+        }
+        reply({
+          type: "proto.reloadConfig",
+          what: String(msg.what),
+          sessions: [...this.liveSessions],
+        } as S2C);
+        break;
+      }
+      case "proto.configUpdate": {
+        // real server: compare the echoed mtime, answer a conflict instead of
+        // overwriting when it moved, otherwise re-read and reply with the new doc
+        const id = msg.docId as ConfigId;
+        this.lastConfigUpdate = {
+          docId: id,
+          mtimeMs: Number(msg.mtimeMs),
+          text: String(msg.text),
+        };
+        const cur = this.configs.get(id)!;
+        if (Number(msg.mtimeMs) !== cur.mtimeMs) {
+          reply({
+            type: "proto.configConflict",
+            docId: id,
+            mtimeMs: cur.mtimeMs,
+            text: cur.text,
+          } as S2C);
+          break;
+        }
+        const next = { mtimeMs: cur.mtimeMs + 1, text: String(msg.text) };
+        this.configs.set(id, next);
+        reply({ type: "proto.configUpdate", doc: { docId: id, ...next } } as S2C);
+        break;
+      }
       case "proto.newSession":
       case "proto.openSession":
       case "proto.attach":
@@ -930,5 +1052,216 @@ describe("UipiClient headless", () => {
 
     expect(client.skills).toEqual(loaded);
     expect((client as unknown as { skillsCwd: string | null }).skillsCwd).toBe("/proj");
+  });
+
+  // -------------------------------------------------------- config editing
+
+  describe("config editing", () => {
+    it("lists the editable documents with their mtimes", async () => {
+      const docs = await client.listConfigs();
+      expect(docs).toEqual([
+        { id: "settings", mtimeMs: 1000 },
+        { id: "roles", mtimeMs: 2000 },
+      ]);
+    });
+
+    it("loadConfig stores the doc and its mtime, and emits", async () => {
+      let changes = 0;
+      client.onChange(() => changes++);
+
+      const doc = await client.loadConfig("settings");
+      expect(doc).toEqual({
+        docId: "settings",
+        mtimeMs: 1000,
+        text: server.configs.get("settings")!.text,
+      });
+      expect(client.configDocs.get("settings")).toEqual(doc);
+      expect(client.configDocs.get("settings")?.mtimeMs).toBe(1000);
+      expect(changes).toBeGreaterThan(0);
+    });
+
+    it("saveConfig echoes the mtime of the currently stored doc", async () => {
+      await client.loadConfig("settings");
+      await client.saveConfig("settings", '{ "model": "p/m2" }\n');
+
+      expect(server.lastConfigUpdate).toEqual({
+        docId: "settings",
+        mtimeMs: 1000,
+        text: '{ "model": "p/m2" }\n',
+      });
+      // the reply carries the re-read doc: its new mtime is what the next save uses
+      const stored = client.configDocs.get("settings")!;
+      expect(stored.mtimeMs).toBe(1001);
+      expect(stored.text).toBe('{ "model": "p/m2" }\n');
+    });
+
+    it("a configUpdate reply updates the stored mtime", async () => {
+      await client.loadConfig("roles");
+      expect(client.configDocs.get("roles")?.mtimeMs).toBe(2000);
+
+      await client.saveConfig("roles", "{}\n");
+      expect(client.configDocs.get("roles")?.mtimeMs).toBe(2001);
+
+      // a second save echoes that new mtime, not the original read
+      await client.saveConfig("roles", "{ }\n");
+      expect(server.lastConfigUpdate?.mtimeMs).toBe(2001);
+    });
+
+    it("a conflict reply records the conflict and does NOT update the stored doc", async () => {
+      await client.loadConfig("settings");
+      const before = client.configDocs.get("settings")!;
+
+      // another editor moved the file on disk after we read it
+      server.externalEdit("settings", '{ "model": "theirs" }\n');
+      const theirs = server.configs.get("settings")!;
+
+      await client.saveConfig("settings", '{ "model": "mine" }\n');
+
+      // the stored doc is untouched: the UI still holds the user's dirty text
+      expect(client.configDocs.get("settings")).toEqual(before);
+      expect(client.configDocs.get("settings")?.text).not.toBe(theirs.text);
+      // the on-disk version is recorded so the UI can diff or offer a reload
+      expect(client.configConflicts.get("settings")).toEqual({
+        mtimeMs: theirs.mtimeMs,
+        text: theirs.text,
+      });
+    });
+
+    it("records a broadcast configConflict and emits", async () => {
+      await client.loadConfig("roles");
+      const stored = client.configDocs.get("roles")!;
+      let changes = 0;
+      client.onChange(() => changes++);
+
+      server.emitConflict("roles");
+      await flush();
+
+      expect(changes).toBeGreaterThan(0);
+      expect(client.configConflicts.get("roles")).toEqual({
+        mtimeMs: server.configs.get("roles")!.mtimeMs,
+        text: server.configs.get("roles")!.text,
+      });
+      expect(client.configDocs.get("roles")).toEqual(stored);
+    });
+
+    it("a reload after a conflict clears it", async () => {
+      await client.loadConfig("settings");
+      server.externalEdit("settings", "{}\n");
+      await client.saveConfig("settings", "mine\n");
+      expect(client.configConflicts.has("settings")).toBe(true);
+
+      const doc = await client.loadConfig("settings");
+      expect(client.configConflicts.has("settings")).toBe(false);
+      expect(client.configDocs.get("settings")).toEqual(doc);
+    });
+
+    it("refuses to save a document it never loaded", async () => {
+      await expect(client.saveConfig("mcp", "{}")).rejects.toThrow(/not loaded/);
+      expect(server.lastConfigUpdate).toBeNull();
+    });
+
+    // Regression: the transport stamps its correlation id onto the outgoing
+    // frame. When the payload's document field was also called `id`, the stamp
+    // overwrote it and the server read the wrong document (the client then
+    // needed a bespoke correlator). The payload field is now `docId`, so a
+    // correlated request must arrive with BOTH ids intact.
+    it("carries a correlation id and the document id on the same frame", async () => {
+      const doc = await client.loadConfig("roles");
+
+      const frame = server.configGetFrames.at(-1)!;
+      // the transport's correlation id …
+      expect(frame.id).toBeTypeOf("string");
+      // … and the document id it must not have clobbered
+      expect(frame.docId).toBe("roles");
+      // the promise resolved to the document the caller asked for
+      expect(doc).toEqual({
+        docId: "roles",
+        mtimeMs: 2000,
+        text: server.configs.get("roles")!.text,
+      });
+      expect(client.configDocs.get("roles")).toEqual(doc);
+    });
+  });
+
+  describe("reloading after a save", () => {
+    it("reloadConfig sends the document and returns the sessions it reached", async () => {
+      const sessions = await client.reloadConfig("roles");
+
+      expect(server.reloads).toEqual(["roles"]);
+      expect(sessions).toEqual(["sess-1"]);
+      expect(client.error).toBeNull();
+    });
+
+    it("an empty session list is a success, not an error", async () => {
+      server.liveSessions = [];
+
+      const sessions = await client.reloadConfig("settings");
+
+      // nothing was running, so nothing can be out of date
+      expect(sessions).toEqual([]);
+      expect(client.error).toBeNull();
+    });
+
+    it("a failed reload surfaces as the client's error and resolves with null", async () => {
+      server.reloadError = "settings reload failed";
+
+      const sessions = await client.reloadConfig("settings");
+
+      expect(sessions).toBeNull();
+      expect(client.error).toBe("settings reload failed");
+    });
+
+    it("a save does not reload anything on its own", async () => {
+      await client.loadConfig("settings");
+      await client.saveConfig("settings", '{ "model": "p/m2" }\n');
+
+      // writing the file must not touch a running session: that is the whole
+      // reason the reload is a separate, explicit step
+      expect(server.reloads).toEqual([]);
+    });
+  });
+
+  describe("skill editing", () => {
+    it("writeSkill sends the request and refreshes skills for the cwd", async () => {
+      await client.newSession("/proj");
+      expect(client.skills.map((s) => s.name)).toEqual(["commit", "deploy"]);
+
+      await client.writeSkill("create", "review", "name: review", "Review the diff");
+
+      expect(server.lastSkillWrite).toEqual({
+        op: "create",
+        name: "review",
+        frontmatter: "name: review",
+        body: "Review the diff",
+      });
+      // the list was re-fetched, so the new skill shows up without a manual refresh
+      expect(client.skills.map((s) => s.name)).toContain("review");
+    });
+
+    it("writeSkill refreshes even when the cwd did not change", async () => {
+      await client.newSession("/proj");
+      expect(client.skills.map((s) => s.name)).toEqual(["commit", "deploy"]);
+
+      await client.writeSkill("delete", "commit");
+
+      // a same-cwd cache hit would leave the deleted skill in place
+      expect(server.lastSkillWrite).toEqual({ op: "delete", name: "commit" });
+      expect(client.skills.map((s) => s.name)).toEqual(["deploy"]);
+    });
+
+    it("readSkill returns the reply's frontmatter and body", async () => {
+      await client.newSession("/proj");
+
+      expect(await client.readSkill("commit")).toEqual({
+        frontmatter: "name: commit\ndisable-model-invocation: true",
+        body: "Body.\n",
+      });
+    });
+
+    it("readSkill returns undefined when the server answers an error", async () => {
+      await client.newSession("/proj");
+
+      expect(await client.readSkill("nope")).toBeUndefined();
+    });
   });
 });

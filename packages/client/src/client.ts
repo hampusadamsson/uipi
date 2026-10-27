@@ -1,4 +1,14 @@
-import type { ModelInfo, SessionSummary, SkillInfo, C2S, S2C, UiEvent } from "@uipi/protocol";
+import type {
+  ConfigDoc,
+  ConfigId,
+  ModelInfo,
+  ReloadWhat,
+  SessionSummary,
+  SkillInfo,
+  C2S,
+  S2C,
+  UiEvent,
+} from "@uipi/protocol";
 import type { Conn } from "./conn.js";
 import { pathFor, hash8, hashFromPath } from "./route.js";
 
@@ -32,6 +42,12 @@ export interface AttachedSession {
   events: unknown[];
 }
 
+/** A save that lost a mtime race: the on-disk version the client did not write. */
+export interface ConfigConflictView {
+  mtimeMs: number;
+  text: string;
+}
+
 export interface SessionSummaryView extends SessionSummary {
   /** true when this summary refers to the currently attached session */
   active: boolean;
@@ -58,6 +74,19 @@ export class UipiClient {
   skills: SkillInfo[] = [];
   activeId: string | null = null;
   error: string | null = null;
+  /**
+   * Config documents this client has loaded by id, each with the mtime it was
+   * read at — the value a save echoes back so the server can detect a
+   * concurrent edit. Plain Map like {@link attachedSessions}: a frontend mirrors
+   * it however it likes.
+   */
+  configDocs = new Map<ConfigId, ConfigDoc>();
+  /**
+   * Documents whose save lost an mtime race. The stored doc is deliberately left
+   * untouched: `mtimeMs`/`text` here are the server's current on-disk version so
+   * the UI can show a diff or offer a reload instead of discarding the edit.
+   */
+  configConflicts = new Map<ConfigId, ConfigConflictView>();
 
   private attachedSessions = new Map<string, AttachedSession>();
   private runStateById = new Map<string, RunState>();
@@ -404,6 +433,110 @@ export class UipiClient {
     }
   }
 
+  /**
+   * Config document ids the server exposes, with the mtime it currently sees.
+   * The editor uses this to know what exists and whether a doc has moved on.
+   */
+  async listConfigs(): Promise<{ id: ConfigId; mtimeMs: number }[]> {
+    const m = await this.conn.request<{
+      type: "proto.configList";
+      docs: { id: ConfigId; mtimeMs: number }[];
+    }>({ type: "proto.configList" });
+    return m.docs ?? [];
+  }
+
+  /** Read one config document, store it and return it. */
+  async loadConfig(id: ConfigId): Promise<ConfigDoc | undefined> {
+    const m = await this.conn.request<{ type: "proto.configGet"; doc: ConfigDoc }>({
+      type: "proto.configGet",
+      docId: id,
+    });
+    if (m.type !== "proto.configGet" || !m.doc) return undefined;
+    this.storeConfigDoc(m.doc);
+    this.emit();
+    return m.doc;
+  }
+
+  /**
+   * Write one config document back, echoing the mtime it was loaded at. A
+   * mismatch makes the server answer `proto.configConflict` instead of
+   * overwriting, which is recorded in {@link configConflicts} and leaves the
+   * stored (dirty) doc untouched.
+   */
+  async saveConfig(id: ConfigId, text: string): Promise<void> {
+    const doc = this.configDocs.get(id);
+    if (!doc) throw new Error(`config document not loaded: ${id}`);
+    const m = await this.conn.request<
+      | { type: "proto.configUpdate"; doc: ConfigDoc }
+      | { type: "proto.configConflict"; docId: ConfigId; mtimeMs: number; text: string }
+      | { type: "proto.error"; message: string }
+    >({
+      type: "proto.configUpdate",
+      docId: id,
+      mtimeMs: doc.mtimeMs,
+      text,
+    });
+    if (m.type === "proto.configUpdate") this.storeConfigDoc(m.doc);
+    else if (m.type === "proto.configConflict") this.recordConfigConflict(m);
+    else if (m.type === "proto.error") this.setError(m.message);
+    this.emit();
+  }
+
+  /**
+   * Re-read one config document on every live session.
+   *
+   * Returns the ids of the sessions that were reloaded — an empty list is a
+   * success (nothing was live, so nothing can be out of date) — or null when the
+   * reload failed, which the client has already surfaced as {@link error} (the
+   * app toasts it). Nothing is thrown: a caller only needs to know whether to
+   * keep offering the affordance.
+   */
+  async reloadConfig(what: ReloadWhat): Promise<string[] | null> {
+    const m = await this.conn.request<
+      | { type: "proto.reloadConfig"; what: string; sessions: string[] }
+      | { type: "proto.error"; message: string }
+    >({ type: "proto.reloadConfig", what });
+    if (m.type !== "proto.reloadConfig") {
+      this.setError(m.message);
+      return null;
+    }
+    this.emit();
+    return m.sessions ?? [];
+  }
+
+  /**
+   * Read one skill's real SKILL.md as raw frontmatter + body. The editor shows
+   * these values verbatim so a save round-trips keys it does not understand.
+   * Returns undefined when the server refuses (missing skill, bad name).
+   */
+  async readSkill(name: string): Promise<{ frontmatter: string; body: string } | undefined> {
+    const m = await this.conn.request<
+      | { type: "proto.skillGet"; name: string; frontmatter: string; body: string }
+      | { type: "proto.error"; message: string }
+    >({ type: "proto.skillGet", name });
+    if (m.type !== "proto.skillGet") return undefined;
+    return { frontmatter: m.frontmatter, body: m.body };
+  }
+
+  /**
+   * Create, overwrite or remove a skill by name. The server resolves name → file
+   * itself, so nothing here knows a path. On success the skills list is
+   * re-fetched for the current cwd so a Skills tab reflects the change.
+   */
+  async writeSkill(
+    op: "create" | "update" | "delete",
+    name: string,
+    frontmatter?: string,
+    body?: string,
+  ): Promise<void> {
+    const msg: C2S = { type: "proto.skillWrite", op, name };
+    if (frontmatter !== undefined) msg.frontmatter = frontmatter;
+    if (body !== undefined) msg.body = body;
+    await this.conn.request<S2C>(msg);
+    // the skills list is cached per cwd, so force the re-fetch a write demands
+    await this.syncSkillsForCwd(this.active?.cwd, true);
+  }
+
   /** Resolve an extension dialog/select request; also dequeues the request by id. */
   respondUi(
     req:
@@ -483,15 +616,28 @@ export class UipiClient {
    * Fetch skills for the active session's cwd, but only when that cwd differs
    * from the one already loaded — every attach and every reconnect lands here.
    */
-  private async syncSkillsForCwd(cwd?: string): Promise<void> {
+  private async syncSkillsForCwd(cwd?: string, force = false): Promise<void> {
     const target = cwd ?? this.active?.cwd;
-    if (!target || target === this.skillsCwd) return;
+    if (!target) return;
+    if (!force && target === this.skillsCwd) return;
     await this.refreshSkills(target);
   }
 
   private setError(message: string): void {
     this.error = message;
     this.emit();
+  }
+
+  /** Store a doc read or re-read from the server (its mtime is authoritative). */
+  private storeConfigDoc(doc: ConfigDoc): void {
+    this.configDocs.set(doc.docId, doc);
+    // a doc the user has now seen supersedes an older conflict on it
+    this.configConflicts.delete(doc.docId);
+  }
+
+  /** Record a lost write race without touching the stored (dirty) doc. */
+  private recordConfigConflict(m: { docId: ConfigId; mtimeMs: number; text: string }): void {
+    this.configConflicts.set(m.docId, { mtimeMs: m.mtimeMs, text: m.text });
   }
 
   private handle(m: S2C): void {
@@ -560,6 +706,43 @@ export class UipiClient {
         // request and reply share the discriminant: only the reply carries skills
         if (!("skills" in m)) return;
         this.skills = m.skills;
+        break;
+      }
+      case "proto.configList": {
+        // request and reply share the discriminant; the list is returned to the
+        // caller of `listConfigs`, so a broadcast copy carries no stored state
+        break;
+      }
+      case "proto.configGet": {
+        if (!("doc" in m)) return;
+        this.storeConfigDoc(m.doc);
+        break;
+      }
+      case "proto.configUpdate": {
+        // the reply carries the doc as re-read after the write: its mtime is the
+        // one the next save must echo, so always take it
+        this.storeConfigDoc(m.doc);
+        break;
+      }
+      case "proto.configConflict": {
+        // the write lost a race: keep the stored (dirty) doc as-is — the UI still
+        // holds the user's text — and record the on-disk version beside it
+        this.recordConfigConflict(m);
+        break;
+      }
+      case "proto.reloadConfig": {
+        // request and reply share the discriminant; the reload is performed by
+        // the caller and its id list returned there, so a broadcast copy carries
+        // no stored state
+        break;
+      }
+      case "proto.skillWrite": {
+        // acknowledgement only: the caller refreshes, listeners just re-render
+        break;
+      }
+      case "proto.skillGet": {
+        // request and reply share the discriminant; the file itself is returned
+        // to the caller of `readSkill`, so a broadcast copy carries no state
         break;
       }
       case "pi.evt": {

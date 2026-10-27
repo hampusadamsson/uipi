@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { hash8, pathFor, hashFromPath, isPagePath, SKILLS_PAGE } from "../src/route.js";
+import {
+  hash8,
+  pathFor,
+  hashFromPath,
+  isPagePath,
+  pageIdFromPath,
+  SKILLS_PAGE,
+  SETTINGS_PAGE,
+} from "../src/route.js";
 
 describe("session URL routing", () => {
   const file = "/Users/hampus/.pi/agent/sessions/--tmp--/2026-10-25T09-13-59-697Z_01a1.jsonl";
@@ -37,5 +45,20 @@ describe("session URL routing", () => {
     expect(isPagePath("/")).toBe(false);
     expect(isPagePath(pathFor(file))).toBe(false);
     expect(hashFromPath(SKILLS_PAGE)).toBeUndefined();
+  });
+
+  it("treats /settings as a page, not a session hash", () => {
+    expect(SETTINGS_PAGE).toBe("/settings");
+    expect(isPagePath(SETTINGS_PAGE)).toBe(true);
+    expect(hashFromPath(SETTINGS_PAGE)).toBeUndefined();
+  });
+
+  it("maps page paths to page ids, and session routes to null", () => {
+    expect(pageIdFromPath(SETTINGS_PAGE)).toBe("settings");
+    expect(pageIdFromPath(SKILLS_PAGE)).toBe("skills");
+    expect(pageIdFromPath(pathFor(file))).toBeNull();
+    expect(pageIdFromPath("/")).toBeNull();
+    expect(pageIdFromPath("/settings/")).toBeNull();
+    expect(pageIdFromPath("/nope")).toBeNull();
   });
 });
