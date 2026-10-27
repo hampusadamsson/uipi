@@ -135,7 +135,11 @@ class FakeServer {
         } as S2C);
         break;
       case "pi.prompt": {
-        // real server: user echo, then streaming assistant text, then settle
+        // Real server, faithfully: a user turn is a *loop* of agent iterations.
+        // Each iteration ends with `agent_end`, the session then continues (a
+        // tool call, queued input, retry…), and only `agent_settled` means the
+        // agent is idle and waiting for the user again. The UI must stay in
+        // Stop for the whole span.
         socket.push({ type: "pi.evt", sessionId: this.sessionId, event: { type: "agent_start" } });
         socket.push({
           type: "pi.evt",
@@ -168,14 +172,47 @@ class FakeServer {
             },
           },
         });
+        // iteration boundary: the loop rolls on into a tool call
         socket.push({
           type: "pi.evt",
           sessionId: this.sessionId,
-          event: { type: "agent_settled" },
+          event: { type: "agent_end", messages: [] },
+        });
+        socket.push({ type: "pi.evt", sessionId: this.sessionId, event: { type: "agent_start" } });
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: { type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} },
+        });
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: {
+            type: "tool_execution_end",
+            toolCallId: "t1",
+            toolName: "read",
+            result: "ok",
+            isError: false,
+          },
+        });
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: { type: "agent_end", messages: [] },
+        });
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: { type: "agent_settled", aborted: false },
         });
         break;
       }
       case "pi.compact":
+        socket.push({
+          type: "pi.evt",
+          sessionId: this.sessionId,
+          event: { type: "compaction_start", reason: "manual" },
+        });
         socket.push({
           type: "pi.evt",
           sessionId: this.sessionId,
@@ -258,6 +295,183 @@ describe("UipiClient headless", () => {
 
     expect(seen).toContain("thinking");
     expect(seen).toContain("streaming");
+    expect(client.stateOf("sess-1")).toBe("idle");
+  });
+
+  // Regression: the send button flipped Stop↔Send between *agent iterations*.
+  // pi's run is a loop — each iteration ends with `agent_end`, and the session
+  // continues into the next one. Treating `agent_end`/`message_end` as "idle"
+  // made the UI claim user input was expected mid-run.
+  it("stays non-idle across agent-loop iterations until agent_settled", async () => {
+    await client.newSession("/proj");
+    const seen: string[] = [];
+    client.onChange(() => {
+      const s = client.stateOf("sess-1");
+      if (seen.at(-1) !== s) seen.push(s);
+    });
+
+    client.sendPrompt("sess-1", "hello");
+    await flush();
+    await flush();
+
+    // Drop the idle sample emitted before the prompt (attach/refresh emits) and
+    // assert on the run itself: no idle blip between the two iterations.
+    const run = seen.slice(seen.indexOf("thinking"));
+    expect(run.filter((s) => s === "idle")).toHaveLength(1);
+    expect(run.at(-1)).toBe("idle");
+    // …and it did pass through a tool phase between them
+    expect(run).toContain("tooling");
+    // the tool phase came *between* the two iterations, never after settling
+    expect(run.indexOf("tooling")).toBeLessThan(run.indexOf("idle"));
+  });
+
+  it("ignores agent_end and message_end as run enders", async () => {
+    await client.newSession("/proj");
+    // drive the events directly, so no fake prompt reply races them
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_start" },
+    } as S2C);
+    await flush();
+    expect(client.stateOf("sess-1")).toBe("thinking");
+    expect(client.runActive("sess-1")).toBe(true);
+
+    for (const event of [
+      { type: "agent_end", messages: [] },
+      { type: "message_end", message: { role: "assistant", stopReason: "stop" } },
+      { type: "agent_end", messages: [] },
+    ]) {
+      server.sockets[0].push({ type: "pi.evt", sessionId: "sess-1", event } as S2C);
+      await flush();
+      expect(client.stateOf("sess-1")).not.toBe("idle");
+      expect(client.runActive("sess-1")).toBe(true);
+    }
+
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_settled", aborted: false },
+    } as S2C);
+    await flush();
+    expect(client.stateOf("sess-1")).toBe("idle");
+    expect(client.runActive("sess-1")).toBe(false);
+  });
+
+  it("settles a manual compaction when no agent run wraps it", async () => {
+    await client.newSession("/proj");
+    client.beginLocalCompaction("sess-1");
+    expect(client.stateOf("sess-1")).toBe("thinking");
+
+    client.cmd({ type: "pi.compact", sessionId: "sess-1" });
+    await flush();
+    await flush();
+
+    // compaction_end settles it: manual compaction runs while the agent is
+    // idle, so no agent_settled follows
+    expect(client.stateOf("sess-1")).toBe("idle");
+    expect(client.runActive("sess-1")).toBe(false);
+  });
+
+  it("keeps the run open when auto-compaction will retry", async () => {
+    await client.newSession("/proj");
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_start" },
+    } as S2C);
+    await flush();
+    for (const event of [
+      { type: "compaction_start", reason: "overflow" },
+      { type: "compaction_end", reason: "overflow", willRetry: true },
+    ]) {
+      server.sockets[0].push({ type: "pi.evt", sessionId: "sess-1", event } as S2C);
+      await flush();
+      expect(client.stateOf("sess-1")).not.toBe("idle");
+      expect(client.runActive("sess-1")).toBe(true);
+    }
+  });
+
+  it("marks a prompt sent mid-run as active without downgrading the phase", async () => {
+    await client.newSession("/proj");
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: {} },
+    } as S2C);
+    await flush();
+    expect(client.stateOf("sess-1")).toBe("tooling");
+
+    client.sendPrompt("sess-1", "steer me");
+    // still tooling — a queued prompt must not repaint the live phase
+    expect(client.stateOf("sess-1")).toBe("tooling");
+    expect(client.runActive("sess-1")).toBe(true);
+  });
+
+  // A prompt the server rejects never becomes a run, so no `agent_settled`
+  // arrives to end the optimistic state; the error path has to settle it.
+  it("settles an optimistic run the server rejected", async () => {
+    await client.newSession("/proj");
+    client.sendPrompt("sess-1", "hello");
+    expect(client.stateOf("sess-1")).toBe("thinking");
+
+    server.sockets[0].deliver({ type: "proto.error", message: "boom" } as S2C);
+    await flush();
+
+    expect(client.stateOf("sess-1")).toBe("idle");
+    expect(client.runActive("sess-1")).toBe(false);
+  });
+
+  it("does not settle a confirmed run on an unrelated error", async () => {
+    await client.newSession("/proj");
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_start" },
+    } as S2C);
+    await flush();
+
+    server.sockets[0].deliver({ type: "proto.error", message: "model failed" } as S2C);
+    await flush();
+
+    // pi is still running and will settle itself
+    expect(client.stateOf("sess-1")).not.toBe("idle");
+    expect(client.runActive("sess-1")).toBe(true);
+  });
+
+  it("abort settles a run pi never started", async () => {
+    await client.newSession("/proj");
+    client.sendPrompt("sess-1", "hello");
+    expect(client.stateOf("sess-1")).toBe("thinking");
+
+    client.abort("sess-1");
+    await flush();
+    expect(client.stateOf("sess-1")).toBe("idle");
+    expect(client.runActive("sess-1")).toBe(false);
+  });
+
+  it("lets a confirmed run settle itself when aborted", async () => {
+    await client.newSession("/proj");
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_start" },
+    } as S2C);
+    await flush();
+
+    client.abort("sess-1");
+    await flush();
+    // pi reports the abort; guessing here would drop the Stop button while the
+    // agent is still winding down
+    expect(client.stateOf("sess-1")).not.toBe("idle");
+    expect(client.runActive("sess-1")).toBe(true);
+
+    server.sockets[0].push({
+      type: "pi.evt",
+      sessionId: "sess-1",
+      event: { type: "agent_settled", aborted: true },
+    } as S2C);
+    await flush();
     expect(client.stateOf("sess-1")).toBe("idle");
   });
 
@@ -497,7 +711,7 @@ describe("UipiClient headless", () => {
       messages: client.active!.messages,
       events: client.liveEvents("sess-1"),
     });
-    const compaction = entries.find((e) => e.kind === "compaction");
+    const compaction = entries.filter((e) => e.kind === "compaction").at(-1);
     expect(compaction?.text).toContain("condensed history");
   });
 
