@@ -6,8 +6,12 @@ import {
   hash8,
   hashFromPath,
   isPagePath,
+  pageIdFromPath,
   SKILLS_PAGE,
+  SETTINGS_PAGE,
   type AttachedSession,
+  type ConfigConflictView,
+  type PageId,
   type RunState,
   type TranscriptEntry,
   type WebSocketLike,
@@ -16,17 +20,30 @@ import {
 import { renderMarkdown } from "./markdown.js";
 import type {
   C2S,
+  ConfigDoc,
+  ConfigId,
   ModelInfo,
+  ReloadWhat,
   SessionSummary,
   SkillInfo,
   UiEvent,
   UiNotification,
 } from "@uipi/protocol";
 
-export type { RunState, TranscriptEntry, AttachedSession };
+export type { RunState, TranscriptEntry, AttachedSession, ConfigId, ConfigDoc };
 
-/** Ids of the top-level pages the app can route to (besides the session view). */
-export type PageId = "skills";
+/**
+ * Ids of the top-level pages the app can route to (besides the session view).
+ * Re-exported from the client's route module so the tab registry, the URL and
+ * the adapter cannot disagree about which pages exist.
+ */
+export type { PageId };
+
+/** The route each page id owns — the inverse of {@link pageIdFromPath}. */
+const PAGE_PATHS: Record<PageId, string> = {
+  skills: SKILLS_PAGE,
+  settings: SETTINGS_PAGE,
+};
 
 /**
  * True when the adapter's mirror already reflects `events`.
@@ -134,8 +151,12 @@ export class UiState {
     return this.skillsCwd ?? this.recentDirs[0] ?? null;
   }
   activeId = $state<string | null>(null);
-  /** which top-level view the URL names: a session view or the skills page */
-  page = $state<"sessions" | "skills">("sessions");
+  /** which top-level view the URL names: a session view or one of the pages */
+  page = $state<"sessions" | PageId>("sessions");
+  /** config documents mirrored from the client, by id (reactive view) */
+  configDocs = new SvelteMap<ConfigId, ConfigDoc>();
+  /** documents whose last save lost an mtime race, by id */
+  configConflicts = new SvelteMap<ConfigId, ConfigConflictView>();
   uiEvents = $state<UiEvent[]>([]);
   error = $state<string | null>(null);
   /** transient UI-only flag: the "new session" modal is open */
@@ -265,6 +286,29 @@ export class UiState {
     await this.client.refreshSkills(target);
   }
 
+  /**
+   * Create, update or delete one of pi's skill files, then refresh the list.
+   * The client's own refresh is skipped when nothing is attached, so the list is
+   * re-read here explicitly — the Settings editor must not show a stale skill.
+   */
+  async writeSkill(
+    op: "create" | "update" | "delete",
+    name: string,
+    frontmatter?: string,
+    body?: string,
+  ): Promise<void> {
+    await this.client.writeSkill(op, name, frontmatter, body);
+    await this.refreshSkills();
+  }
+
+  /**
+   * Read one skill's real file so the editor can show its values instead of
+   * guessing at them. Undefined means the read failed (missing skill, bad name).
+   */
+  async readSkill(name: string): Promise<{ frontmatter: string; body: string } | undefined> {
+    return this.client.readSkill(name);
+  }
+
   async newSession(cwd: string, agentDir?: string) {
     await this.client.newSession(cwd, agentDir);
     this.syncUrl();
@@ -378,15 +422,50 @@ export class UiState {
     if (location.pathname !== url) history.pushState(null, "", url);
   }
 
-  /** Follow the browser URL: only `/skills` is a page of its own. */
+  /** Follow the browser URL: `/skills` and `/settings` are pages of their own. */
   private syncPage(): void {
-    this.page = isPagePath(location.pathname) ? "skills" : "sessions";
+    this.page = pageIdFromPath(location.pathname) ?? "sessions";
   }
 
   /** Navigate to a top-level page (the non-session views in App's `pages`). */
   goToPage(page: PageId): void {
-    history.pushState(null, "", SKILLS_PAGE);
+    history.pushState(null, "", PAGE_PATHS[page]);
     this.page = page;
+  }
+
+  // ------------------------------------------------------------- config docs
+
+  /**
+   * Read one config document into the reactive mirror.
+   *
+   * The client keeps the doc and its mtime; this only forces the mirror to
+   * refresh, so a component reading {@link configDocs} re-renders on the reply.
+   */
+  async loadConfig(id: ConfigId): Promise<void> {
+    await this.client.loadConfig(id);
+    this.sync();
+  }
+
+  /**
+   * Write one document back. Conflicts and failures are the client's business
+   * (`configConflicts` / `error` → toast), so nothing is thrown to the caller.
+   */
+  async saveConfig(id: ConfigId, text: string): Promise<void> {
+    await this.client.saveConfig(id, text);
+    this.sync();
+  }
+
+  /**
+   * Re-read one config document on every live session, returning the ids that
+   * were reloaded (empty when nothing was live, null when the reload failed and
+   * the client already raised {@link error}). A save deliberately does not do
+   * this on its own: pi reads config at session start, so reloading changes a
+   * running agent mid-conversation and has to be asked for.
+   */
+  async reloadConfig(what: ReloadWhat): Promise<string[] | null> {
+    const sessions = await this.client.reloadConfig(what);
+    this.sync();
+    return sessions;
   }
 
   /** Leave the skills page for the active session (or the default view). */
@@ -435,6 +514,18 @@ export class UiState {
     this.skillsCwd = c.active?.cwd ?? null;
     this.activeId = c.activeId;
     this.syncPage();
+    for (const [id, doc] of c.configDocs) {
+      if (this.configDocs.get(id) !== doc) this.configDocs.set(id, doc);
+    }
+    for (const id of [...this.configDocs.keys()]) {
+      if (!c.configDocs.has(id)) this.configDocs.delete(id);
+    }
+    for (const [id, conflict] of c.configConflicts) {
+      if (this.configConflicts.get(id) !== conflict) this.configConflicts.set(id, conflict);
+    }
+    for (const id of [...this.configConflicts.keys()]) {
+      if (!c.configConflicts.has(id)) this.configConflicts.delete(id);
+    }
     const events = c.getUiEvents();
     // keep the existing array when nothing changed so consumers' $effects don't
     // re-run on every unrelated sync (notifications are drained by id)

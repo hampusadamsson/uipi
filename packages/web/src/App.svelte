@@ -4,6 +4,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
   import SkillsPage from "./components/SkillsPage.svelte";
+  import SettingsPage from "./components/SettingsPage.svelte";
   import NewSessionModal from "./components/NewSessionModal.svelte";
   import UiEventModal from "./components/UiEventModal.svelte";
   import ModelPicker from "./components/ModelPicker.svelte";
@@ -18,11 +19,17 @@
 
   // top-level tabs besides Sessions: an id here is also the page id selectTab
   // routes to, so a row and its route can't disagree
-  const pages = [{ id: "skills", label: "Skills" }] as const;
+  const pages = [
+    { id: "skills", label: "Skills" },
+    { id: "settings", label: "Settings" },
+  ] as const;
 
   // the URL owns the selection: no separate tab state to drift from ui.page
   const activeTab = $derived(ui.page);
   const onSkills = $derived(ui.page === "skills");
+  const onSettings = $derived(ui.page === "settings");
+  // any page route (not a session view) hides the session-only header controls
+  const onPage = $derived(ui.page !== "sessions");
 
   function selectTab(value: string) {
     if (value === "sessions") ui.goToSessionsPage();
@@ -94,7 +101,7 @@
           {/each}
         </Tabs.List>
       </Tabs.Root>
-      {#if attach && !onSkills}
+      {#if attach && !onPage}
         <span class="text-sm font-semibold truncate hidden sm:inline">{attach.cwd}</span>
         <span class="text-xs text-muted-foreground truncate sm:hidden">
           {attach.cwd.split("/").pop()}
@@ -130,6 +137,8 @@
     </header>
     {#if onSkills}
       <SkillsPage />
+    {:else if onSettings}
+      <SettingsPage />
     {:else if attach}
       <Chat sessionId={attach.sessionId} />
     {:else}
