@@ -26,6 +26,13 @@ export type C2S =
    * unambiguous.
    */
   | { type: "proto.roleNames"; sessionId: string }
+  /**
+   * Ask what skills pi discovers for one cwd. Same discriminant as the reply,
+   * like `proto.recentDirs`: the request carries the query (`cwd`), the reply
+   * carries the result (`skills`), and no other payload is shared, so the
+   * direction is unambiguous.
+   */
+  | { type: "proto.skills"; cwd: string; agentDir?: string }
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
@@ -84,6 +91,17 @@ export interface SessionSummary {
 
 export interface RecentDir {
   path: string;
+}
+
+/**
+ * pi's own skills for one cwd: user skills from the agent dir plus project
+ * skills from `<cwd>/.pi/skills`. uipi only lists them — installation and
+ * invocation stay with pi.
+ */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  scope: "user" | "project";
 }
 
 export interface ModelInfo {
@@ -151,6 +169,7 @@ export type S2C = S2CBase &
     | { type: "proto.error"; message: string; requestId?: string }
     | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
     | { type: "proto.recentDirs"; dirs: RecentDir[] }
+    | { type: "proto.skills"; skills: SkillInfo[] }
     | { type: "proto.models"; models: ModelInfo[] }
     | {
         type: "proto.attached";
