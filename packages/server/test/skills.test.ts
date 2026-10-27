@@ -27,7 +27,10 @@ function tempDir(prefix: string): string {
 function writeSkill(root: string, name: string, description: string): void {
   const dir = join(root, name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\nBody.\n`);
+  writeFileSync(
+    join(dir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${description}\n---\n\nBody.\n`,
+  );
 }
 
 afterEach(() => {

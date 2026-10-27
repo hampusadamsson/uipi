@@ -23,7 +23,8 @@ Four packages, strictly layered — each depends only on the ones above it:
   injected socket factory, request correlation, capped-backoff reconnect),
   `UipiClient` (session store, pi-event → run-state reducer, every command),
   `deriveTranscript` (pi events → renderable entries) and `/s/<hash>` routing.
-  No Svelte, no DOM, no browser globals.
+  No Svelte, no DOM, no browser globals. Page routes such as `/skills` live
+  beside the session routes in the same route module.
 - `packages/server` — Node server, in-process pi SDK (`createAgentSessionRuntime`),
   pi-native JSONL session persistence, extension UI host bridge.
 - `packages/web` — Svelte 5 + Vite + Tailwind 4. A thin adapter: it mirrors
@@ -92,3 +93,5 @@ Server binds to 127.0.0.1 only.
 - Slash-command autocomplete, `@file` passthrough, Enter send / Shift+Enter newline
 - steer/followUp queued chips with cancel, Stop (abort)
 - Extension dialogs/selects as web modals
+- Skills page — pi's own skills for the active cwd; one click starts a session
+  running that skill
