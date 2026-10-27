@@ -3,7 +3,7 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { C2S, S2C, SessionSummary, SkillInfo } from "@uipi/protocol";
+import type { C2S, ReloadWhat, S2C, SessionSummary, SkillInfo } from "@uipi/protocol";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -15,6 +15,8 @@ import {
   type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import type { Model as PiModel } from "@earendil-works/pi-ai";
+import { ConfigConflictError, listConfigs, readConfig, writeConfig } from "./config.js";
+import { readSkill, writeSkill } from "./skills-write.js";
 import { UiHost } from "./uihost.js";
 import type { Send, Subscriber } from "./types.js";
 
@@ -77,6 +79,45 @@ export class SessionService {
         reply({ type: "proto.skills", skills: discoverSkills(msg.cwd, msg.agentDir) });
         break;
       }
+      case "proto.reloadConfig": {
+        await this.reloadConfig(msg.what, reply);
+        break;
+      }
+      case "proto.skillWrite": {
+        await this.replyWithAgentDir(reply, async (agentDir) => {
+          await writeSkill(agentDir, msg.op, msg.name, msg.frontmatter, msg.body);
+          return { type: "proto.skillWrite", name: msg.name };
+        });
+        break;
+      }
+      case "proto.skillGet": {
+        await this.replyWithAgentDir(reply, async (agentDir) => {
+          const { frontmatter, body } = await readSkill(agentDir, msg.name);
+          return { type: "proto.skillGet", name: msg.name, frontmatter, body };
+        });
+        break;
+      }
+      case "proto.configList": {
+        await this.replyWithAgentDir(reply, async (agentDir) => ({
+          type: "proto.configList",
+          docs: await listConfigs(agentDir),
+        }));
+        break;
+      }
+      case "proto.configGet": {
+        await this.replyWithAgentDir(reply, async (agentDir) => ({
+          type: "proto.configGet",
+          doc: await readConfig(agentDir, msg.docId),
+        }));
+        break;
+      }
+      case "proto.configUpdate": {
+        await this.replyWithAgentDir(reply, async (agentDir) => ({
+          type: "proto.configUpdate",
+          doc: await writeConfig(agentDir, msg.docId, msg.mtimeMs, msg.text),
+        }));
+        break;
+      }
       case "proto.newSession": {
         await this.newSession(msg.cwd, msg.agentDir, reply, _sub);
         break;
@@ -113,6 +154,109 @@ export class SessionService {
           type: "proto.error",
           message: `unknown message ${(msg as { type?: string }).type}`,
         });
+    }
+  }
+
+  /**
+   * Re-read one config document on every live session.
+   *
+   * Explicit by design: pi reads its config at session start, so reloading is
+   * never implicit on save — a silent reload would change a running agent
+   * mid-conversation. One failing session must not abort the rest: the others
+   * still get reloaded and are reported, and only a request where *every* target
+   * failed answers `proto.error`.
+   */
+  private async reloadConfig(what: ReloadWhat, reply: Send): Promise<void> {
+    const targets = [...this.live.values()];
+    const reloaded: string[] = [];
+    let lastError: unknown;
+    for (const s of targets) {
+      try {
+        await this.reloadOne(s, what);
+        reloaded.push(s.id);
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (targets.length > 0 && reloaded.length === 0) {
+      reply({ type: "proto.error", message: String(lastError) });
+      return;
+    }
+    reply({ type: "proto.reloadConfig", what, sessions: reloaded });
+  }
+
+  private async reloadOne(s: LiveSession, what: ReloadWhat): Promise<void> {
+    switch (what) {
+      case "settings":
+        await s.session.settingsManager.reload();
+        break;
+      case "roles":
+        // the roles extension owns roles.json: its own `/role reload` re-reads
+        // the file and re-applies the active role, so uipi only asks.
+        await s.session.prompt("/role reload");
+        // the role (and the model/tools a role presets) may have moved: restate
+        // the whole runtime state from history, exactly like a switch does
+        this.broadcastSessionState(s);
+        break;
+      case "skills":
+        await s.session.resourceLoader.reload();
+        break;
+    }
+  }
+
+  /** Full runtime state of one session, as `proto.sessionState` carries it. */
+  private sessionStateMsg(s: LiveSession): S2C {
+    return {
+      type: "proto.sessionState",
+      sessionId: s.id,
+      role: mirrorActiveRole(s.session, s.agentDir),
+      model: sessionModelRef(s.session),
+      thinkingLevel: String(s.session.thinkingLevel ?? ""),
+      tools: [...s.session.getActiveToolNames()],
+      commands: discoverCommands(s.session),
+    };
+  }
+
+  /** Restate one session's runtime state to its subscribers. */
+  private broadcastSessionState(s: LiveSession): void {
+    const msg = this.sessionStateMsg(s);
+    for (const sub of s.subscribers.keys()) {
+      try {
+        sub.send(msg);
+      } catch {
+        /* dead subscriber */
+      }
+    }
+  }
+
+  /**
+   * Run one agent-dir operation against the agent dir pi resolved for the live
+   * session — the same `[...live.values()][0]` choice `proto.listModels` makes,
+   * since `proto.config*` and `proto.skill*` carry no sessionId — falling
+   * back to pi's default agent dir when nothing is live.
+   *
+   * Conflicts answer `proto.configConflict` (the UI can diff/reload) instead of
+   * `proto.error`; every other failure is an ordinary error reply, so such a
+   * request can never reject this `void`-invoked handler.
+   */
+  private async replyWithAgentDir(
+    reply: Send,
+    op: (agentDir: string) => Promise<S2C>,
+  ): Promise<void> {
+    const agentDir = [...this.live.values()][0]?.agentDir ?? getAgentDir();
+    try {
+      reply(await op(agentDir));
+    } catch (e) {
+      if (e instanceof ConfigConflictError) {
+        reply({
+          type: "proto.configConflict",
+          docId: e.doc.docId,
+          mtimeMs: e.doc.mtimeMs,
+          text: e.doc.text,
+        });
+      } else {
+        reply({ type: "proto.error", message: String(e) });
+      }
     }
   }
 
@@ -201,22 +345,7 @@ export class SessionService {
           // Echo the state the session *has*, not the one that was requested: the
           // extension may have refused (unknown role, or busy). Re-read the
           // history after prompt() so a refusal can't show a role that never applied.
-          const role = mirrorActiveRole(s.session, s.agentDir);
-          for (const s2 of s.subscribers.keys()) {
-            try {
-              s2.send({
-                type: "proto.sessionState",
-                sessionId: s.id,
-                role,
-                model: sessionModelRef(s.session),
-                thinkingLevel: String(s.session.thinkingLevel ?? ""),
-                tools: [...s.session.getActiveToolNames()],
-                commands: discoverCommands(s.session),
-              });
-            } catch {
-              /* dead */
-            }
-          }
+          this.broadcastSessionState(s);
         } catch (e) {
           reply({ type: "proto.error", message: String(e) });
         }
@@ -231,23 +360,7 @@ export class SessionService {
           }
           await s.session.setModel(model);
           // echo the new state to ALL subscribers of this session
-          const m = s.session.model as unknown as { provider?: string; id?: string } | undefined;
-          const modelRef = m?.provider && m?.id ? { provider: m.provider, modelId: m.id } : null;
-          for (const s2 of s.subscribers.keys()) {
-            try {
-              s2.send({
-                type: "proto.sessionState",
-                sessionId: s.id,
-                role: mirrorActiveRole(s.session, s.agentDir),
-                model: modelRef,
-                thinkingLevel: String(s.session.thinkingLevel ?? ""),
-                tools: [...s.session.getActiveToolNames()],
-                commands: discoverCommands(s.session),
-              });
-            } catch {
-              /* dead */
-            }
-          }
+          this.broadcastSessionState(s);
         } catch (e) {
           reply({ type: "proto.error", message: String(e) });
         }
