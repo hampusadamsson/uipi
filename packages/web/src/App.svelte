@@ -3,6 +3,7 @@
   import { ui, type RunState } from "./lib/state.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
+  import SkillsPage from "./components/SkillsPage.svelte";
   import NewSessionModal from "./components/NewSessionModal.svelte";
   import UiEventModal from "./components/UiEventModal.svelte";
   import ModelPicker from "./components/ModelPicker.svelte";
@@ -11,8 +12,21 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Toaster } from "$lib/components/ui/sonner/index.js";
+  import * as Tabs from "$lib/components/ui/tabs/index.js";
   import MenuIcon from "@lucide/svelte/icons/menu";
   import { toast } from "svelte-sonner";
+
+  // top-level tabs besides Sessions; adding a page is a row here plus a branch below
+  const pages = [{ id: "skills", label: "Skills" }];
+
+  // the URL owns the selection: no separate tab state to drift from ui.page
+  const activeTab = $derived(ui.page);
+  const onSkills = $derived(ui.page === "skills");
+
+  function selectTab(value: string) {
+    if (value === "skills") ui.goToPage("skills");
+    else ui.goToSessionsPage();
+  }
 
   $effect(() => {
     if (ui.error) {
@@ -63,15 +77,23 @@
   </div>
 
   <main class="flex-1 flex flex-col min-w-0">
-    {#if attach}
-      <header class="flex items-center gap-2 border-b border-border px-3 md:px-4 py-2">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          class="md:hidden shrink-0"
-          aria-label="Menu"
-          onclick={toggleSidebar}><MenuIcon /></Button
-        >
+    <header class="flex items-center gap-2 border-b border-border px-3 md:px-4 py-2">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="md:hidden shrink-0"
+        aria-label="Menu"
+        onclick={toggleSidebar}><MenuIcon /></Button
+      >
+      <Tabs.Root value={activeTab} onValueChange={selectTab} class="shrink-0">
+        <Tabs.List class="h-7 text-xs">
+          <Tabs.Trigger value="sessions" class="text-xs px-2">Sessions</Tabs.Trigger>
+          {#each pages as p (p.id)}
+            <Tabs.Trigger value={p.id} class="text-xs px-2">{p.label}</Tabs.Trigger>
+          {/each}
+        </Tabs.List>
+      </Tabs.Root>
+      {#if attach && !onSkills}
         <span class="text-sm font-semibold truncate hidden sm:inline">{attach.cwd}</span>
         <span class="text-xs text-muted-foreground truncate sm:hidden">
           {attach.cwd.split("/").pop()}
@@ -101,7 +123,13 @@
             onclick={() => ui.cmd({ type: "pi.abort", sessionId: attach.sessionId })}>Stop</Button
           >
         {/if}
-      </header>
+      {:else}
+        <div class="flex-1"></div>
+      {/if}
+    </header>
+    {#if onSkills}
+      <SkillsPage />
+    {:else if attach}
       <Chat sessionId={attach.sessionId} />
     {:else}
       <div class="flex-1 grid place-items-center text-muted-foreground p-4">

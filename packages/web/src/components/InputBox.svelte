@@ -91,7 +91,7 @@
     }
     // optimistic run state; pi events will settle to idle when done
     if (v === "/compact") {
-      ui.runState.set(sessionId, "thinking");
+      ui.beginLocalCompaction(sessionId);
       ui.cmd({ type: "pi.compact", sessionId });
     } else {
       // always queue: sendPrompt is queued server-side when a run is in flight,
@@ -173,10 +173,8 @@
       {#if runState === "idle"}
         <Button class="min-h-11 px-5" onclick={send}>Send</Button>
       {:else}
-        <Button
-          variant="destructive"
-          class="min-h-11 px-5"
-          onclick={() => ui.cmd({ type: "pi.abort", sessionId })}>Stop</Button
+        <Button variant="destructive" class="min-h-11 px-5" onclick={() => ui.abort(sessionId)}
+          >Stop</Button
         >
       {/if}
     </div>

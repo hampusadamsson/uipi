@@ -5,6 +5,8 @@ import {
   pathFor,
   hash8,
   hashFromPath,
+  isPagePath,
+  SKILLS_PAGE,
   type AttachedSession,
   type RunState,
   type TranscriptEntry,
@@ -12,7 +14,14 @@ import {
   deriveTranscript,
 } from "@uipi/client";
 import { renderMarkdown } from "./markdown.js";
-import type { C2S, ModelInfo, SessionSummary, UiEvent, UiNotification } from "@uipi/protocol";
+import type {
+  C2S,
+  ModelInfo,
+  SessionSummary,
+  SkillInfo,
+  UiEvent,
+  UiNotification,
+} from "@uipi/protocol";
 
 export type { RunState, TranscriptEntry, AttachedSession };
 
@@ -113,7 +122,13 @@ export class UiState {
   sessions = $state<SessionSummary[]>([]);
   recentDirs = $state<string[]>([]);
   models = $state<ModelInfo[]>([]);
+  /** pi's skills for {@link skillsCwd} (user skills + `<cwd>/.pi/skills`) */
+  skills = $state<SkillInfo[]>([]);
+  /** the cwd the mirrored {@link skills} were discovered for */
+  skillsCwd = $state<string | null>(null);
   activeId = $state<string | null>(null);
+  /** which top-level view the URL names: a session view or the skills page */
+  page = $state<"sessions" | "skills">("sessions");
   uiEvents = $state<UiEvent[]>([]);
   error = $state<string | null>(null);
   /** transient UI-only flag: the "new session" modal is open */
@@ -143,7 +158,11 @@ export class UiState {
   }
 
   init() {
-    window.addEventListener("popstate", () => void this.hydrateFromUrl());
+    this.syncPage();
+    window.addEventListener("popstate", () => {
+      this.syncPage();
+      void this.hydrateFromUrl();
+    });
     this.client.attach();
   }
 
@@ -226,9 +245,38 @@ export class UiState {
     await this.client.refreshModels();
   }
 
+  /**
+   * Re-run pi's skill discovery for the cwd the skills page is scoped to.
+   *
+   * `skillsCwd` is the cwd the mirrored list belongs to, so it wins; the
+   * attached session's cwd and the most recent dir cover the case where nothing
+   * has been discovered yet. No cwd at all means nothing to ask pi about.
+   */
+  async refreshSkills(cwd?: string): Promise<void> {
+    const target = cwd ?? this.skillsCwd ?? this.attached.get(this.activeId ?? "")?.cwd;
+    if (!target) return;
+    await this.client.refreshSkills(target);
+  }
+
   async newSession(cwd: string, agentDir?: string) {
     await this.client.newSession(cwd, agentDir);
     this.syncUrl();
+  }
+
+  /**
+   * Start a session for one skill: attach a fresh session in the cwd the user is
+   * working in, then send the skill as an ordinary prompt.
+   *
+   * pi expands `/skill:<name>` into the skill block server-side, so nothing
+   * skill-specific happens here — it is a plain prompt against a new session.
+   */
+  async startSkill(skill: { name: string }): Promise<void> {
+    const cwd = this.attached.get(this.activeId ?? "")?.cwd ?? this.recentDirs[0];
+    if (!cwd) return;
+    await this.newSession(cwd);
+    const id = this.activeId;
+    if (!id) return;
+    this.sendPrompt(id, `/skill:${skill.name}`);
   }
 
   async openSession(sessionFile: string) {
@@ -261,6 +309,16 @@ export class UiState {
 
   sendPrompt(sessionId: string, text: string): void {
     this.client.sendPrompt(sessionId, text);
+  }
+
+  /** Ask pi to stop the run, settling an optimistic run pi never picked up. */
+  abort(sessionId: string): void {
+    this.client.abort(sessionId);
+  }
+
+  /** Optimistically show a manual compaction as busy until its events settle. */
+  beginLocalCompaction(sessionId: string): void {
+    this.client.beginLocalCompaction(sessionId);
   }
 
   /** Present and clear a UI event (extension dialog/select/notification). */
@@ -304,11 +362,35 @@ export class UiState {
   // ------------------------------------------------------------- url sync
 
   private syncUrl(): void {
+    // a page route owns the URL: only a session view may rewrite it
+    if (isPagePath(location.pathname)) return;
     const url = this.client.activePath();
     if (location.pathname !== url) history.pushState(null, "", url);
   }
 
-  /** Restore the session named by the current URL, if any. */
+  /** Follow the browser URL: only `/skills` is a page of its own. */
+  private syncPage(): void {
+    this.page = isPagePath(location.pathname) ? "skills" : "sessions";
+  }
+
+  /** Navigate to the skills page. */
+  goToPage(page: "skills"): void {
+    history.pushState(null, "", SKILLS_PAGE);
+    this.page = page;
+  }
+
+  /** Leave the skills page for the active session (or the default view). */
+  goToSessionsPage(): void {
+    history.pushState(null, "", this.client.activePath());
+    this.page = "sessions";
+  }
+
+  /**
+   * Restore the session named by the current URL, if any.
+   *
+   * Page routes (`/skills`) are not sessions: `openPath`/`hashFromPath` both
+   * decline them, so this leaves their URL untouched.
+   */
   async hydrateFromUrl(): Promise<void> {
     const opened = await this.client.openPath(location.pathname);
     if (opened) {
@@ -339,7 +421,10 @@ export class UiState {
     this.sessions = c.sessions;
     this.recentDirs = c.recentDirs;
     this.models = c.models;
+    this.skills = c.skills;
+    this.skillsCwd = c.active?.cwd ?? null;
     this.activeId = c.activeId;
+    this.syncPage();
     const events = c.getUiEvents();
     // keep the existing array when nothing changed so consumers' $effects don't
     // re-run on every unrelated sync (notifications are drained by id)

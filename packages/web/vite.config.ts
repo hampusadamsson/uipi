@@ -9,6 +9,9 @@ export default defineConfig({
     alias: {
       $lib: path.resolve("./src/lib"),
     },
+    // tests run in happy-dom, so Svelte must resolve its browser entry: without
+    // this condition `mount` comes from svelte's server build and throws
+    conditions: ["browser"],
   },
   build: {
     // marked + the highlight.js grammars in $lib/highlight.ts put the single
