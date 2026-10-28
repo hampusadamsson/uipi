@@ -15,6 +15,32 @@
   const isAssistant = $derived(entry.role === "assistant");
   // Sanitized in $lib/markdown.ts; null means "render the text as-is".
   const html = $derived(ui.entryHtml(entry));
+
+  // Formatted usage/timing, in display order; empty when nothing is known.
+  const metaParts = $derived.by(() => {
+    const m = entry.meta;
+    if (!m) return [];
+    const parts: string[] = [];
+    if (m.durationMs !== undefined) {
+      parts.push(
+        m.durationMs < 1000
+          ? `${Math.round(m.durationMs)}ms`
+          : `${(m.durationMs / 1000).toFixed(1)}s`,
+      );
+    }
+    if (m.tokensPerSecond !== undefined) parts.push(`${m.tokensPerSecond.toFixed(1)} t/s`);
+    if (m.contextTokens !== undefined) {
+      // Below 1k the rounded form would read "0k ctx"; show the exact count instead.
+      parts.push(
+        m.contextTokens < 1000
+          ? `${Math.round(m.contextTokens)} ctx`
+          : `${Math.round(m.contextTokens / 1000)}k ctx`,
+      );
+    }
+    return parts;
+  });
+  // Nothing while the reply is still being written: the numbers aren't final yet.
+  const showMeta = $derived(metaParts.length > 0 && !entry.thinkingActive);
 </script>
 
 <div class="my-2">
@@ -58,6 +84,18 @@
       {#each entry.toolCalls as tc (tc.id)}
         <ToolCall {tc} />
       {/each}
+      {#if showMeta}
+        <div
+          class="mt-1 flex gap-1.5 items-center text-[11px] text-muted-foreground/70 select-none"
+          data-testid="message-meta"
+        >
+          <span class="sr-only">message statistics:</span>
+          {#each metaParts as part, i (part)}
+            {#if i > 0}<span aria-hidden="true">·</span>{/if}
+            <span>{part}</span>
+          {/each}
+        </div>
+      {/if}
     </div>
   {:else}
     <div class="text-xs text-muted-foreground my-1 flex items-center gap-2">
