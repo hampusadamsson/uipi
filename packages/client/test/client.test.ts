@@ -1026,7 +1026,7 @@ describe("UipiClient headless", () => {
     await client.newSession("/proj");
     await client.refreshSkills("/proj");
     const loaded = client.skills;
-    const loadedCwd = (client as unknown as { skillsCwd: string | null }).skillsCwd;
+    const loadedCwd = client.skillsCwd;
     expect(loadedCwd).toBe("/proj");
 
     // anything discovery would show for the other cwd, in case it runs at all
@@ -1051,7 +1051,7 @@ describe("UipiClient headless", () => {
     await flush();
 
     expect(client.skills).toEqual(loaded);
-    expect((client as unknown as { skillsCwd: string | null }).skillsCwd).toBe("/proj");
+    expect(client.skillsCwd).toBe("/proj");
   });
 
   // -------------------------------------------------------- config editing

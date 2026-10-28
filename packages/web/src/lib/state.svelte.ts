@@ -511,7 +511,7 @@ export class UiState {
     this.recentDirs = c.recentDirs;
     this.models = c.models;
     this.skills = c.skills;
-    this.skillsCwd = c.active?.cwd ?? null;
+    this.skillsCwd = c.skillsCwd ?? c.active?.cwd ?? null;
     this.activeId = c.activeId;
     this.syncPage();
     for (const [id, doc] of c.configDocs) {

@@ -34,6 +34,8 @@
     busyName = skill.name;
     try {
       await ui.startSkill(skill);
+    } catch (e) {
+      ui.error = "could not start skill: " + (e instanceof Error ? e.message : String(e));
     } finally {
       busyName = null;
     }

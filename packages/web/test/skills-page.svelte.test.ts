@@ -34,6 +34,7 @@ beforeEach(() => {
   ui.skills = [];
   ui.skillsCwd = "/proj";
   ui.recentDirs = [];
+  ui.error = null;
 });
 
 afterEach(() => {
@@ -97,5 +98,47 @@ describe("skills page cards", () => {
     const rendered = cards();
     expect(rendered).toHaveLength(3);
     expect(rendered.every((c) => c.disabled)).toBe(true);
+  });
+
+  it("a rejected startSkill surfaces an error and leaves the cards enabled", async () => {
+    ui.skills = skills;
+    vi.spyOn(ui, "startSkill").mockRejectedValue(new Error("server said no"));
+    render();
+
+    cards()
+      .find((c) => c.dataset.skill === "review")!
+      .click();
+    flushSync();
+    // let the rejected promise settle so pick()'s catch and finally both run
+    await Promise.resolve();
+    flushSync();
+
+    expect(ui.error).toContain("could not start skill: server said no");
+    expect(cards().every((c) => !c.disabled)).toBe(true);
+  });
+
+  // Regression guard: this already passes; it guards against reintroducing a
+  // session-dependent scope — cards come from the discovered cwd, not a session.
+  it("keeps the page usable with no active session when a cwd was discovered", async () => {
+    ui.skills = skills;
+    ui.skillsCwd = "/proj";
+    ui.recentDirs = [];
+    ui.activeId = null;
+    const started: string[] = [];
+    vi.spyOn(ui, "startSkill").mockImplementation(async (skill) => {
+      started.push(skill.name);
+    });
+    render();
+
+    const rendered = cards();
+    expect(rendered.every((c) => !c.disabled)).toBe(true);
+    expect(host.textContent).toContain("/proj");
+
+    rendered.find((c) => c.dataset.skill === "review")!.click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    expect(started).toEqual(["review"]);
   });
 });

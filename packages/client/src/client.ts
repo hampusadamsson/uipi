@@ -127,7 +127,7 @@ export class UipiClient {
   private contextTokensById = new Map<string, number>();
   private pendingModelById = new Map<string, { provider: string; modelId: string }>();
   /** cwd {@link skills} was fetched for, so a re-fetch only happens on change */
-  private skillsCwd: string | null = null;
+  private loadedSkillsCwd: string | null = null;
   private uiEvents: UiEvent[] = [];
   private listeners = new Set<() => void>();
 
@@ -173,6 +173,11 @@ export class UipiClient {
 
   get active(): AttachedSession | undefined {
     return this.activeId ? this.attachedSessions.get(this.activeId) : undefined;
+  }
+
+  /** The cwd {@link skills} were fetched for, or null before the first fetch. */
+  get skillsCwd(): string | null {
+    return this.loadedSkillsCwd;
   }
 
   stateOf(sessionId: string | null): RunState {
@@ -426,7 +431,7 @@ export class UipiClient {
         agentDir,
       });
       this.skills = m.skills;
-      this.skillsCwd = cwd;
+      this.loadedSkillsCwd = cwd;
       this.emit();
     } catch {
       /* not fatal */
@@ -619,7 +624,7 @@ export class UipiClient {
   private async syncSkillsForCwd(cwd?: string, force = false): Promise<void> {
     const target = cwd ?? this.active?.cwd;
     if (!target) return;
-    if (!force && target === this.skillsCwd) return;
+    if (!force && target === this.loadedSkillsCwd) return;
     await this.refreshSkills(target);
   }
 
