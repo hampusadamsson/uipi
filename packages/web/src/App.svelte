@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Attachment } from "@uipi/protocol";
   import { ui, type RunState, type PageId } from "./lib/state.svelte";
+  import { fmtCtx } from "./lib/format";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
   import SkillsPage from "./components/SkillsPage.svelte";
@@ -116,7 +117,7 @@
         </span>
         {#if ui.contextTokens.get(attach.sessionId)}
           <Badge variant="outline" class="text-[10px] shrink-0 font-normal">
-            {Math.round((ui.contextTokens.get(attach.sessionId) ?? 0) / 1000)}k ctx
+            {fmtCtx(ui.contextTokens.get(attach.sessionId) ?? 0)}
           </Badge>
         {/if}
         <div class="flex-1"></div>

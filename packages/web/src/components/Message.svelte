@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { TranscriptEntry } from "@uipi/client";
   import { ui } from "$lib/state.svelte";
+  import { fmtCtx } from "$lib/format";
   import ToolCall from "./ToolCall.svelte";
   import { Card, CardContent } from "$lib/components/ui/card/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
@@ -29,14 +30,7 @@
       );
     }
     if (m.tokensPerSecond !== undefined) parts.push(`${m.tokensPerSecond.toFixed(1)} t/s`);
-    if (m.contextTokens !== undefined) {
-      // Below 1k the rounded form would read "0k ctx"; show the exact count instead.
-      parts.push(
-        m.contextTokens < 1000
-          ? `${Math.round(m.contextTokens)} ctx`
-          : `${Math.round(m.contextTokens / 1000)}k ctx`,
-      );
-    }
+    if (m.contextTokens !== undefined) parts.push(fmtCtx(m.contextTokens));
     return parts;
   });
   // Nothing while the reply is still being written: the numbers aren't final yet.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ui, sessionRoleText } from "$lib/state.svelte";
+  import { fmtCtx } from "$lib/format";
   import { Button } from "$lib/components/ui/button/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
   import PlusIcon from "@lucide/svelte/icons/plus";
@@ -8,12 +9,19 @@
   let { onAfterSelect }: { onAfterSelect?: () => void } = $props();
 
   function select(id: string) {
-    void ui.attach(id);
+    ui.attach(id).catch((e: unknown) => {
+      ui.error = "could not open session: " + (e instanceof Error ? e.message : String(e));
+    });
     onAfterSelect?.();
   }
 
   async function openFile(file: string) {
-    await ui.openSession(file);
+    try {
+      await ui.openSession(file);
+    } catch (e) {
+      ui.error = "could not open session: " + (e instanceof Error ? e.message : String(e));
+      return;
+    }
     onAfterSelect?.();
   }
 
@@ -82,9 +90,7 @@
             >
           {/if}
           {#if ui.contextTokens.get(s.sessionId)}
-            <span class="shrink-0"
-              >· {Math.round((ui.contextTokens.get(s.sessionId) ?? 0) / 1000)}k ctx</span
-            >
+            <span class="shrink-0">· {fmtCtx(ui.contextTokens.get(s.sessionId) ?? 0)}</span>
           {/if}
         </div>
       </button>
