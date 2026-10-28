@@ -15,7 +15,7 @@ Protocol / client / server / web split — `@uipi/protocol` (wire types only) �
 - Streaming chat, tool-call cards with streamed bash output and diffs
 - Model + thinking-level pickers, `/compact`, `@file` passthrough
 - 127.0.0.1 only, pi-native JSONL persistence, pi's own auth
-- 236 tests across 24 files, CI (typecheck/lint/format/test/build)
+- 339 tests across 36 files, CI (typecheck/lint/format/test/build)
 
 ## Decided — pages in the web UI (skills)
 
@@ -210,11 +210,90 @@ interface ConfigDoc {
 - No project-skill editing: project scope is listed, never written.
 - No rename. A rename is delete + create, done by hand.
 
+## Decided — per-message usage meta (v1.4)
+
+**Invariant:** the numbers are the ones pi recorded on the message. uipi formats
+and rounds them; it never estimates, back-fills or extrapolates.
+
+- **A faint line, not a badge.** One row under each assistant message —
+  `12.3s · 12.3 t/s · 12k ctx` — at `text-[11px]`,
+  `text-muted-foreground/70`, `select-none`, no icon, border or hover. Data you
+  can ignore, not a control. It only appears in the assistant branch, so a user
+  message never shows one.
+- **Duration is pi's, whole.** `durationMs` is `AssistantMessage.durationMs`:
+  request start to response end, measured by pi with a monotonic clock, set on
+  the stream's final message. It includes time-to-first-token and every pause
+  between chunks.
+- **tokens/sec is `output / durationMs`, because that is all pi gives.** pi
+  exports no TTFT and no decode-time split (`Usage` carries counts, no timing),
+  so a true decode rate is not derivable. Accepted consequence: on a long prompt
+  the row reads low — it is end-to-end throughput, not generation speed.
+- **Context is `input + cacheRead + cacheWrite`.** One helper,
+  `contextTokensOf` in `@uipi/client`, sums it for both the transcript's
+  `metaOf` and the session-wide counter, so the row and the header cannot
+  disagree by construction. Missing fields count as zero; a message with all
+  three missing has no context number.
+- **Absent stays absent.** No `durationMs` → no duration and no t/s, never
+  back-computed from `timestamp`; legacy and deferred messages show only what
+  they carry. The row is also suppressed while the message streams, because the
+  numbers are not final yet.
+- `fmtCtx` (`packages/web/src/lib/format.ts`) keeps counts below 1k exact, so a
+  small context cannot render as `0k ctx`.
+
+## Audit round (v1.4)
+
+### Audited and fixed
+
+- **Dead fork deleted.** `packages/web/src/lib/conn.ts` was a hand-copied `Conn`
+  with no importer (the adapter uses `@uipi/client`), so it is gone and the
+  client package's export list is the single surface.
+- **One context formatter, three call sites.** `fmtCtx` replaces the inline
+  formatters in `Message.svelte`, `Sidebar.svelte` and `App.svelte`. Kept
+  because the < 1000 exact-count form is the better behaviour and one helper is
+  one place to change — not a bug fix: the two header/sidebar call sites are
+  guarded on a nonzero count, so neither ever rendered `0k ctx`.
+- **One token sum.** `contextTokensOf` (`packages/client/src/usage.ts`) replaces
+  the duplicated `input + cacheRead + cacheWrite` in `metaOf` and in
+  `UipiClient`'s context counter.
+- **No silent dead clicks.** A sidebar row's rejected `attach` / `openSession`
+  now lands on `ui.error` (what `App.svelte` toasts) instead of an unhandled
+  promise that looked like a dead row.
+- **New tests:** `input-box.svelte.test.ts` (send + clear, Shift+Enter, empty
+  box, `/new`, `/compact`, Stop vs Send), `sidebar.svelte.test.ts` (live vs
+  archived row, both rejection paths), `config-conflict.svelte.test.ts` (banner,
+  draft kept on conflict, reload clears it, another document untouched),
+  `format.test.ts`.
+- **Two tests that proved less than their names claimed were made real** (both
+  mutation-checked: each now fails when its production line is broken):
+  - `queued-chips.test.ts` "broadcasts to every subscriber" recorded only the
+    first subscriber, so the claim was never tested. Both subscribers now record
+    and their `proto.queues` frames must match.
+  - the queue-clear case called `broadcastQueues` directly instead of going
+    through its trigger. It now drives the production path: `proto.newSession` →
+    `materialize()` → pi's `message_start` for the delivered user message.
+
+### Deliberately not changed
+
+- **The unimported `ui/` kit dirs are a kit, not dead code.**
+  `alert-dialog`, `dropdown-menu`, `scroll-area`, `select`, `spinner`, `switch`
+  and `tooltip` under `packages/web/src/lib/components/ui/` have no importer
+  today. They are the vendored shadcn-svelte kit new work starts from; deleting
+  them only means re-running the generator.
+- **The styling assertions in `message-meta.svelte.test.ts` are regression
+  pins.** `text-[11px]`, `text-muted-foreground/70`, `select-none`, and no
+  border/hover/shadow _are_ the contract "faint line you can ignore"; loosening
+  them lets a later refactor make the row loud.
+- **The state-identity assertions in `state-adapter.svelte.test.ts` are pins
+  too.** They assert the identity change that makes Svelte's `SvelteMap`
+  notify — the original bug was a silent no-update-until-refresh, which equal
+  values would not catch.
+
 ## Next (v2, not yet designed)
 
 - Extension custom-widget portals (iframe/containers)
 - Image/file upload from browser
-- Usage/token cost display
+- Usage cost display (per-message duration / t/s / context shipped in v1.4;
+  per-message cost not)
 - Browser-side directory tree picker for cwd
 - Generic custom-entry rendering (`subagents`, todos, …) via the entry-renderer
   registry
