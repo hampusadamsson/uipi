@@ -11,6 +11,7 @@ import type {
 } from "@uipi/protocol";
 import type { Conn } from "./conn.js";
 import { pathFor, hash8, hashFromPath } from "./route.js";
+import { contextTokensOf } from "./usage.js";
 
 /** The server's attach payload, as it appears on the wire. */
 type AttachedMsg = Extract<S2C, { type: "proto.attached" }>;
@@ -834,10 +835,7 @@ export class UipiClient {
         const msg = (event as { message?: { usage?: Record<string, number>; stopReason?: string } })
           .message;
         if (msg?.usage) {
-          this.contextTokensById.set(
-            sessionId,
-            (msg.usage.input ?? 0) + (msg.usage.cacheRead ?? 0) + (msg.usage.cacheWrite ?? 0),
-          );
+          this.contextTokensById.set(sessionId, contextTokensOf(msg.usage));
         }
         // a toolUse turn continues the loop: keep the run open. A final answer
         // still leaves the run open until `agent_settled`, since queued input

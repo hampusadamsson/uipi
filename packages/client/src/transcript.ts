@@ -3,6 +3,8 @@
  * Strategy: maintain a rolling projection keyed by message id when possible,
  * falling back to append for unknown events.
  */
+import { contextTokensOf } from "./usage.js";
+
 export interface TranscriptEntry {
   kind: "message" | "compaction" | "system";
   role?: string;
@@ -222,7 +224,7 @@ function metaOf(m: unknown): TranscriptEntryMeta | undefined {
   const contextTokens =
     input === undefined && cacheRead === undefined && cacheWrite === undefined
       ? undefined
-      : (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+      : contextTokensOf({ input, cacheRead, cacheWrite });
   const tokensPerSecond =
     durationMs !== undefined && durationMs > 0 && output !== undefined && output > 0
       ? Math.round((output / (durationMs / 1000)) * 10) / 10

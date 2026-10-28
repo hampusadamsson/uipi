@@ -15,13 +15,7 @@
  * another adapter using exactly the same API.
  */
 
-export {
-  Conn,
-  SOCKET_OPEN,
-  type ConnOptions,
-  type SocketFactory,
-  type WebSocketLike,
-} from "./conn.js";
+export { Conn, type SocketFactory, type WebSocketLike } from "./conn.js";
 
 export {
   UipiClient,
