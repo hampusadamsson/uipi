@@ -12,6 +12,23 @@ export interface TranscriptEntry {
   toolCalls: ToolCallView[];
   raw: unknown;
   id: string;
+  /** Raw usage/timing numbers for assistant messages; the UI formats them. */
+  meta?: TranscriptEntryMeta;
+}
+
+/**
+ * Per-assistant-message usage and timing, kept as raw numbers: formatting
+ * belongs to the UI. Only present when at least one field is known, so user
+ * messages and legacy assistant messages (no `durationMs`) stay `meta`-less
+ * when they carry no usage.
+ */
+export interface TranscriptEntryMeta {
+  /** whole response duration; absent on legacy/deferred messages */
+  durationMs?: number;
+  outputTokens?: number;
+  /** input + cacheRead + cacheWrite, matching the client's session counter */
+  contextTokens?: number;
+  tokensPerSecond?: number;
 }
 
 export interface ToolCallView {
@@ -169,7 +186,7 @@ function textOf(m: unknown): string {
 
 function fromMessage(m: unknown, fallbackId: string): TranscriptEntry {
   const mm = m as { role?: string; id?: string };
-  return {
+  const entry: TranscriptEntry = {
     kind: "message",
     role: mm.role ?? "user",
     text: textOf(m),
@@ -179,6 +196,43 @@ function fromMessage(m: unknown, fallbackId: string): TranscriptEntry {
     raw: m,
     id: mm.id ?? fallbackId,
   };
+  const meta = metaOf(m);
+  if (meta) entry.meta = meta;
+  return entry;
+}
+
+/**
+ * Derive raw usage/timing for a message, or `undefined` when nothing is known.
+ * `durationMs` is only ever the message's own value: a missing value stays
+ * missing rather than being back-computed from the timestamp.
+ */
+function metaOf(m: unknown): TranscriptEntryMeta | undefined {
+  const mm = m as {
+    durationMs?: unknown;
+    usage?: { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown };
+  };
+  if (!mm || typeof mm !== "object") return undefined;
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const durationMs = num(mm.durationMs);
+  const output = num(mm.usage?.output);
+  const input = num(mm.usage?.input);
+  const cacheRead = num(mm.usage?.cacheRead);
+  const cacheWrite = num(mm.usage?.cacheWrite);
+  const contextTokens =
+    input === undefined && cacheRead === undefined && cacheWrite === undefined
+      ? undefined
+      : (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+  const tokensPerSecond =
+    durationMs !== undefined && durationMs > 0 && output !== undefined && output > 0
+      ? Math.round((output / (durationMs / 1000)) * 10) / 10
+      : undefined;
+  const meta: TranscriptEntryMeta = {};
+  if (durationMs !== undefined) meta.durationMs = durationMs;
+  if (output !== undefined) meta.outputTokens = output;
+  if (contextTokens !== undefined) meta.contextTokens = contextTokens;
+  if (tokensPerSecond !== undefined) meta.tokensPerSecond = tokensPerSecond;
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -223,6 +277,9 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
         last.text = textOf(ev.message);
         last.raw = ev.message;
         last.thinkingActive = false;
+        const meta = metaOf(ev.message);
+        if (meta) last.meta = meta;
+        else delete last.meta;
       }
       break;
     }

@@ -92,6 +92,77 @@ describe("deriveTranscript", () => {
     expect(asst!.thinkingActive).toBe(false);
   });
 
+  it("carries usage and timing meta for an assistant message from the snapshot", () => {
+    const entries = deriveTranscript({
+      messages: [
+        userMsg,
+        {
+          ...finalA,
+          timestamp: 1_700_000_000_000,
+          durationMs: 2000,
+          usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 5, totalTokens: 175 },
+        },
+      ],
+      events: [],
+    });
+    const asst = entries.find((e) => e.role === "assistant");
+    expect(asst!.meta).toEqual({
+      durationMs: 2000,
+      outputTokens: 50,
+      contextTokens: 125,
+      tokensPerSecond: 25,
+    });
+  });
+
+  it("carries usage and timing meta on the message_end fold", () => {
+    const entries = deriveTranscript({
+      messages: [],
+      events: [
+        { type: "message_start", message: partialA },
+        {
+          type: "message_end",
+          message: {
+            ...finalA,
+            timestamp: 1_700_000_000_000,
+            durationMs: 1500,
+            usage: { input: 40, output: 10, cacheRead: 2, cacheWrite: 3, totalTokens: 55 },
+          },
+        },
+      ],
+    });
+    const asst = entries.find((e) => e.role === "assistant");
+    expect(asst!.meta).toEqual({
+      durationMs: 1500,
+      outputTokens: 10,
+      contextTokens: 45,
+      tokensPerSecond: 6.7,
+    });
+  });
+
+  it("omits durationMs and tokensPerSecond when durationMs is absent", () => {
+    const entries = deriveTranscript({
+      messages: [
+        userMsg,
+        {
+          ...finalA,
+          timestamp: 1_700_000_000_000,
+          usage: { input: 7, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 10 },
+        },
+      ],
+      events: [],
+    });
+    const asst = entries.find((e) => e.role === "assistant");
+    expect(asst!.meta).toEqual({ outputTokens: 3, contextTokens: 7 });
+    expect(asst!.meta!.durationMs).toBeUndefined();
+    expect(asst!.meta!.tokensPerSecond).toBeUndefined();
+  });
+
+  it("gives a user message no meta", () => {
+    const entries = deriveTranscript({ messages: [userMsg], events: [] });
+    expect(entries[0].role).toBe("user");
+    expect(entries[0].meta).toBeUndefined();
+  });
+
   it("keeps tool call cards from execution events", () => {
     const entries = deriveTranscript({
       messages: [userMsg],
