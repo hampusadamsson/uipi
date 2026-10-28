@@ -11,8 +11,8 @@
 // raw lines: `@uipi/server` has no YAML parser dependency (see package.json) and
 // adding one just to keep unknown keys would be a heavier change than the job
 // needs — a line-based merge is exact for the flat frontmatter skills use.
-import { mkdir, readFile, rm, rmdir, stat } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { lstat, mkdir, readFile, realpath, rm, rmdir, stat } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import { atomicWriteWithBackup } from "./config.js";
 
 export type SkillWriteOp = "create" | "update" | "delete";
@@ -40,8 +40,13 @@ function assertSkillName(name: string): void {
  * The path is always `join(agentDir, "skills", name, "SKILL.md")`; after
  * resolving, the result must still sit inside the resolved skills dir, so even a
  * slug rule that some future refactor relaxes cannot escape the directory.
+ *
+ * The string check alone is not enough: every fs call follows symlinks, so a
+ * `<name>` dir (or the SKILL.md itself) that links elsewhere would be written
+ * through. Both are `lstat`ed and refused when they are symlinks, and the
+ * candidate's real parent must still resolve inside the real skills dir.
  */
-function skillFile(agentDir: string, name: string): string {
+async function skillFile(agentDir: string, name: string): Promise<string> {
   assertSkillName(name);
 
   const skillsDir = resolve(join(agentDir, "skills"));
@@ -49,12 +54,45 @@ function skillFile(agentDir: string, name: string): string {
   if (!path.startsWith(skillsDir + sep)) {
     throw new Error(`invalid skill name "${name}": resolves outside ${skillsDir}`);
   }
+
+  // the skill dir and SKILL.md are never legitimately links: refuse either one
+  for (const candidate of [dirname(path), path]) {
+    const info = await lstat(candidate).catch(() => undefined);
+    if (info?.isSymbolicLink()) {
+      throw new Error(`refusing to write through symlink: ${candidate}`);
+    }
+  }
+
+  // defence in depth for a symlinked *ancestor*: the parent the file would land
+  // in must be inside the same real dir the skills dir resolves to
+  const realSkillsDir = await realpath(skillsDir).catch(() => skillsDir);
+  const realParent = await realpath(dirname(path)).catch(() => undefined);
+  if (realParent !== undefined && !realParent.startsWith(realSkillsDir + sep)) {
+    throw new Error(`invalid skill name "${name}": resolves outside ${realSkillsDir}`);
+  }
   return path;
+}
+
+/**
+ * Newlines pi's own `parseFrontmatter` accepts: CRLF *and* a lone CR.
+ *
+ * Normalising both (not just CRLF) is what keeps this splitter in step with pi:
+ * a SKILL.md written on an old-Mac-ish encoder, or assembled by a tool that
+ * emits bare CRs, must not read as "no frontmatter" here and then be folded
+ * into the body by an update.
+ */
+function normaliseNewlines(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/** Drop a leading UTF-8 BOM, exactly as pi's `parseFrontmatter` does. */
+function stripBom(text: string): string {
+  return text.startsWith("\uFEFF") ? text.slice(1) : text;
 }
 
 /** Normalise only the outer blank lines a textarea tends to add; nothing else. */
 function trimBlankLines(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/^\n+/, "").replace(/\n+$/, "");
+  return normaliseNewlines(text).replace(/^\n+/, "").replace(/\n+$/, "");
 }
 
 /** One assembled SKILL.md: frontmatter block, blank line, body. */
@@ -88,9 +126,19 @@ function frontmatterBlocks(frontmatter: string): { key: string | undefined; line
   return blocks;
 }
 
-/** Split an existing SKILL.md into its raw frontmatter lines and its body. */
+/**
+ * Split an existing SKILL.md into its raw frontmatter lines and its body.
+ *
+ * Mirrors pi's `parseFrontmatter`/`stripFrontmatter` for what counts as a
+ * frontmatter block (leading BOM dropped, CRLF and lone CR normalised, block
+ * only when the text opens with `---`), but returns the frontmatter as *raw
+ * text* rather than a parsed object: the merge below must keep unknown keys
+ * verbatim, and pi exports no frontmatter serialiser to turn an object back
+ * into text. `readSkill`/`writeSkill` therefore share this one splitter, so a
+ * file can never be read with one rule and rewritten with another.
+ */
 function splitSkill(text: string): { frontmatter: string; body: string } {
-  const normalised = text.replace(/\r\n/g, "\n");
+  const normalised = normaliseNewlines(stripBom(text));
   if (!normalised.startsWith("---\n")) return { frontmatter: "", body: normalised };
   const end = normalised.indexOf("\n---", 3);
   if (end === -1) return { frontmatter: "", body: normalised };
@@ -126,6 +174,21 @@ function withName(frontmatter: string, name: string): string {
 }
 
 /**
+ * Read one SKILL.md as text, turning fs errors into the module's own message.
+ *
+ * One reader for both `readSkill` and the update path: an update that cannot
+ * read the file it is about to rewrite must fail here rather than be handed an
+ * empty frontmatter and lose every key on disk.
+ */
+async function readSkillFile(path: string, name: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    throw new Error(`skill ${name} does not exist: ${path}`);
+  }
+}
+
+/**
  * Read `<agentDir>/skills/<name>/SKILL.md` back as raw frontmatter + body.
  *
  * Same name validation and containment check as {@link writeSkill}, so a read can
@@ -136,14 +199,8 @@ export async function readSkill(
   agentDir: string,
   name: string,
 ): Promise<{ frontmatter: string; body: string }> {
-  const path = skillFile(agentDir, name);
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch {
-    throw new Error(`skill ${name} does not exist: ${path}`);
-  }
-  return splitSkill(text);
+  const path = await skillFile(agentDir, name);
+  return splitSkill(await readSkillFile(path, name));
 }
 
 /**
@@ -161,7 +218,7 @@ export async function writeSkill(
   frontmatter?: string,
   body?: string,
 ): Promise<void> {
-  const path = skillFile(agentDir, name);
+  const path = await skillFile(agentDir, name);
   const exists = (await stat(path).catch(() => undefined)) !== undefined;
   const incoming = trimBlankLines(frontmatter ?? "");
 
@@ -182,7 +239,7 @@ export async function writeSkill(
 
   if (op === "update") {
     if (!exists) throw new Error(`skill ${name} does not exist: ${path}`);
-    const disk = splitSkill(await readFile(path, "utf8"));
+    const disk = splitSkill(await readSkillFile(path, name));
     // name first, before the merge, so a kept-on-disk `name:` line cannot land
     // after the caller's keys: supplying it means the merge drops the disk one
     const merged = mergeFrontmatter(disk.frontmatter, withName(incoming, name));

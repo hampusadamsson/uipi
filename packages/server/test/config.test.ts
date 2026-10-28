@@ -5,10 +5,19 @@
 //
 // Every case runs against a mkdtemp directory — the real ~/.pi/agent is never
 // read or written here.
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { ConfigId } from "@uipi/protocol";
 import {
   CONFIG_FILES,
@@ -17,6 +26,26 @@ import {
   readConfig,
   writeConfig,
 } from "../src/config.js";
+
+// The writer creates its temp file before the rename, so a failed rename is the
+// only way to reach the cleanup path with a real temp file on disk. `rename` is
+// mocked (globally for this file) so a single call can be made to fail; the
+// control flag is reset in a `finally` below so no other test sees the mock.
+const renameControl = vi.hoisted(() => ({ failNextRename: false }));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rename: async (from: string, to: string): Promise<void> => {
+      if (renameControl.failNextRename) {
+        renameControl.failNextRename = false;
+        throw new Error("simulated rename failure");
+      }
+      await actual.rename(from, to);
+    },
+  };
+});
 
 const dirs: string[] = [];
 
@@ -130,6 +159,77 @@ describe("config store", () => {
 
     expect(existsSync(`${path}.tmp`)).toBe(false);
     expect(readFileSync(path, "utf8")).toBe('{"ok":true}');
+  });
+
+  // 4(a): a rename failure must not leak the temp file. Without the `finally` in
+  // atomicWriteWithBackup the tmp file survives, so this fails loudly.
+  it("removes the temp file when the rename fails, leaving the original intact", async () => {
+    const dir = agentDir();
+    const path = seed(dir, "settings", '{"v":1}');
+    const doc = await readConfig(dir, "settings");
+
+    renameControl.failNextRename = true;
+    try {
+      await expect(writeConfig(dir, "settings", doc.mtimeMs, '{"v":2}')).rejects.toThrow(
+        /simulated rename failure/,
+      );
+    } finally {
+      // disarm the hoisted flag and drop any mock state, so no later test in this
+      // file can observe the simulated failure
+      renameControl.failNextRename = false;
+      vi.restoreAllMocks();
+    }
+
+    // (i) nothing temp-shaped survived the failed save
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    // (ii) the rename never landed, so the document still holds the old text
+    expect(readFileSync(path, "utf8")).toBe('{"v":1}');
+    // (iii) pinned to what the implementation actually does: the backup copy is
+    // taken BEFORE the tmp write, so a failed save still leaves a .bak holding
+    // the pre-save content. (Asserted, not assumed: reordering would fail here.)
+    expect(existsSync(`${path}.bak`)).toBe(true);
+    expect(readFileSync(`${path}.bak`, "utf8")).toBe('{"v":1}');
+  });
+
+  it("keeps two concurrent saves of one document from sharing a temp file", async () => {
+    const dir = agentDir();
+    const path = seed(dir, "settings", '{"v":0}');
+    const doc = await readConfig(dir, "settings");
+
+    const a = '{"v":"a"}';
+    const b = '{"v":"b"}';
+    // Both saves read the same mtime, so both pass the conflict check; each must
+    // then write and rename its OWN temp file, or one of them lands on the
+    // other's file and fails (ENOENT) or silently wins with mixed content.
+    const results = await Promise.allSettled([
+      writeConfig(dir, "settings", doc.mtimeMs, a),
+      writeConfig(dir, "settings", doc.mtimeMs, b),
+    ]);
+
+    for (const result of results) expect(result.status).toBe("fulfilled");
+    const final = readFileSync(path, "utf8");
+    expect([a, b]).toContain(final);
+    expect(() => JSON.parse(final)).not.toThrow();
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("refuses to write through a symlinked config file", async () => {
+    const dir = agentDir();
+    const outside = agentDir();
+    const target = join(outside, "roles.json");
+    const original = '{"roles":{}}\n';
+    writeFileSync(target, original);
+    symlinkSync(target, join(dir, CONFIG_FILES.roles));
+
+    // the mtime is read through the link, so the rejection comes from the writer
+    const read = await readConfig(dir, "roles");
+    await expect(writeConfig(dir, "roles", read.mtimeMs, '{"roles":{},"x":1}\n')).rejects.toThrow(
+      /refusing to write through symlink/,
+    );
+
+    expect(readFileSync(target, "utf8")).toBe(original);
+    expect(existsSync(`${target}.bak`)).toBe(false);
+    expect(existsSync(`${target}.tmp`)).toBe(false);
   });
 
   it("preserves unknown top-level keys in roles.json", async () => {

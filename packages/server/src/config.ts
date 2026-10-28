@@ -8,7 +8,7 @@
 // Documents are opaque text: the server parses the JSON only to reject broken
 // input, never re-serializes it, so unknown keys a newer/older pi writes survive
 // a round trip through the web UI untouched.
-import { copyFile, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ConfigDoc, ConfigId } from "@uipi/protocol";
 
@@ -70,6 +70,9 @@ export async function readConfig(agentDir: string, id: ConfigId): Promise<Config
   return { docId: id, mtimeMs: info.mtimeMs, text: await readFile(path, "utf8") };
 }
 
+/** Distinguishes tmp files written by concurrent saves within this process. */
+let tmpCounter = 0;
+
 /**
  * Replace `path` atomically, keeping the previous version in `<path>.bak`.
  *
@@ -78,14 +81,33 @@ export async function readConfig(agentDir: string, id: ConfigId): Promise<Config
  * new text lands via a sibling tmp file + rename, so a reader never sees a
  * half-written file. The backup is only taken when there is something to back
  * up, so creating a brand-new file does not fail on a missing source.
+ *
+ * A target that is a symlink is refused outright: the rename would replace the
+ * link itself but the backup copy would read (and `.bak` would land beside) the
+ * file outside `agentDir` the link points at.
  */
 export async function atomicWriteWithBackup(path: string, text: string): Promise<void> {
+  const link = await lstat(path).catch(() => undefined);
+  if (link?.isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${path}`);
+  }
+
   const previous = await stat(path).catch(() => undefined);
   if (previous) await copyFile(path, `${path}.bak`);
 
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, text, "utf8");
-  await rename(tmp, path);
+  // The tmp name must be unique per call: with one fixed `<path>.tmp`, two
+  // concurrent saves of the same document would write to (and rename away) the
+  // same file, so one save would clobber or lose the other's content.
+  const tmp = `${path}.${process.pid}.${tmpCounter++}.tmp`;
+  try {
+    await writeFile(tmp, text, "utf8");
+    await rename(tmp, path);
+  } finally {
+    // The rename consumes the tmp file; anything left here is a leaked or
+    // half-written temp (failed write, failed rename, crashed predecessor), so
+    // drop it rather than leaving it to block a later `rmdir` of the directory.
+    await rm(tmp, { force: true }).catch(() => {});
+  }
 }
 
 /**

@@ -6,7 +6,15 @@
 //
 // Every case runs against a mkdtemp directory — the real ~/.pi/agent is never
 // read or written here.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it, expect } from "vitest";
@@ -166,5 +174,80 @@ describe("skill writer", () => {
     expect(readFileSync(`${path}.bak`, "utf8")).toBe("---\nname: pdf-tools\n---\n\nold\n");
     expect(readFileSync(path, "utf8")).toBe("---\nname: pdf-tools\n---\n\nnew\n");
     expect(existsSync(`${path}.tmp`)).toBe(false);
+  });
+
+  it("round-trips a BOM-prefixed SKILL.md without folding its frontmatter into the body", async () => {
+    const dir = agentDir();
+    // a BOM-prefixed file with an unknown key: the splitter must still see the
+    // frontmatter, or the update would treat the whole file as body and keep it
+    const path = seed(
+      dir,
+      "pdf-tools",
+      "\uFEFF---\nname: pdf-tools\ndescription: old\nfutureKey:\n  nested: 1\n---\n\nold body\n",
+    );
+
+    await writeSkill(dir, "update", "pdf-tools", "description: new");
+
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: pdf-tools\ndescription: new\nfutureKey:\n  nested: 1\n---\n\nold body\n",
+    );
+    // the body is the old body only — no second frontmatter block folded into it
+    expect(await readSkill(dir, "pdf-tools")).toEqual({
+      frontmatter: "name: pdf-tools\ndescription: new\nfutureKey:\n  nested: 1",
+      body: "old body\n",
+    });
+  });
+
+  it("round-trips a SKILL.md with lone CR newlines without duplicating frontmatter", async () => {
+    const dir = agentDir();
+    const path = seed(
+      dir,
+      "pdf-tools",
+      "---\rname: pdf-tools\rdescription: old\r---\r\rold body\r",
+    );
+
+    await writeSkill(dir, "update", "pdf-tools", "description: new");
+
+    expect(readFileSync(path, "utf8")).toBe(
+      "---\nname: pdf-tools\ndescription: new\n---\n\nold body\n",
+    );
+  });
+
+  it("refuses a symlinked skill dir on read, update and delete", async () => {
+    const dir = agentDir();
+    const outside = agentDir();
+    const target = join(outside, "SKILL.md");
+    const original = "---\nname: pdf-tools\n---\n\nsecret\n";
+    writeFileSync(target, original);
+    mkdirSync(join(dir, "skills"), { recursive: true });
+    symlinkSync(outside, join(dir, "skills", "pdf-tools"), "dir");
+
+    await expect(readSkill(dir, "pdf-tools")).rejects.toThrow(/refusing to write through symlink/);
+    await expect(
+      writeSkill(dir, "update", "pdf-tools", "description: x", "pwned\n"),
+    ).rejects.toThrow(/refusing to write through symlink/);
+    await expect(writeSkill(dir, "delete", "pdf-tools")).rejects.toThrow(
+      /refusing to write through symlink/,
+    );
+
+    // the linked-to file is untouched and no backup appeared beside it
+    expect(readFileSync(target, "utf8")).toBe(original);
+    expect(existsSync(`${target}.bak`)).toBe(false);
+    expect(existsSync(`${target}.tmp`)).toBe(false);
+  });
+
+  it("refuses a symlinked SKILL.md even inside a real skill dir", async () => {
+    const dir = agentDir();
+    const outside = agentDir();
+    const target = join(outside, "SKILL.md");
+    writeFileSync(target, "outside\n");
+    mkdirSync(join(dir, "skills", "pdf-tools"), { recursive: true });
+    symlinkSync(target, skillPath(dir, "pdf-tools"));
+
+    await expect(readSkill(dir, "pdf-tools")).rejects.toThrow(/refusing to write through symlink/);
+    await expect(writeSkill(dir, "update", "pdf-tools", "description: x")).rejects.toThrow(
+      /refusing to write through symlink/,
+    );
+    expect(readFileSync(target, "utf8")).toBe("outside\n");
   });
 });

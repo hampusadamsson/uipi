@@ -76,7 +76,13 @@ export class SessionService {
         break;
       }
       case "proto.skills": {
-        reply({ type: "proto.skills", skills: discoverSkills(msg.cwd, msg.agentDir) });
+        // same resolution as proto.skillGet/skillWrite/config*: the live session's
+        // agent dir wins, `agentDir` is only the no-live-session fallback, so the
+        // list and the editor can never address different directories
+        reply({
+          type: "proto.skills",
+          skills: discoverSkills(msg.cwd, this.agentDir(msg.agentDir)),
+        });
         break;
       }
       case "proto.reloadConfig": {
@@ -230,10 +236,25 @@ export class SessionService {
   }
 
   /**
-   * Run one agent-dir operation against the agent dir pi resolved for the live
-   * session — the same `[...live.values()][0]` choice `proto.listModels` makes,
-   * since `proto.config*` and `proto.skill*` carry no sessionId — falling
-   * back to pi's default agent dir when nothing is live.
+   * The agent dir the agent-dir routes work on.
+   *
+   * One resolution for `proto.skills`, `proto.skillGet`, `proto.skillWrite` and
+   * `proto.config*`: the first live session's agent dir, falling back to the
+   * request's optional `agentDir` and then to pi's default. Those routes carry no
+   * sessionId, so `[...live.values()][0]` is the same "first live session" choice
+   * `proto.listModels` makes. Returning one value here is what keeps the skills
+   * list and the skill editor in agreement — resolving them separately is how
+   * they drifted apart before.
+   */
+  private agentDir(requested?: string): string {
+    return (
+      [...this.live.values()][0]?.agentDir ??
+      (requested && requested.trim() ? resolveAgentDir(requested) : getAgentDir())
+    );
+  }
+
+  /**
+   * Run one agent-dir operation against {@link agentDir}.
    *
    * Conflicts answer `proto.configConflict` (the UI can diff/reload) instead of
    * `proto.error`; every other failure is an ordinary error reply, so such a
@@ -243,7 +264,7 @@ export class SessionService {
     reply: Send,
     op: (agentDir: string) => Promise<S2C>,
   ): Promise<void> {
-    const agentDir = [...this.live.values()][0]?.agentDir ?? getAgentDir();
+    const agentDir = this.agentDir();
     try {
       reply(await op(agentDir));
     } catch (e) {
@@ -793,6 +814,11 @@ type SkillScope = SkillInfo["scope"];
  * "user", because the UI has no third chip for them.
  *
  * Sorted by name so the list order is stable between requests.
+ *
+ * `agentDir` is the resolved agent dir (a caller that already picked one — the
+ * `proto.skills` handler does, via the same live-session-first resolution the
+ * skill editor uses — passes it through untouched); omitted, it falls back to
+ * pi's default, which is what the tests exercise directly.
  *
  * Display-only: any failure yields `[]` — an empty list beats a broken request.
  */
