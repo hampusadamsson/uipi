@@ -16,6 +16,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Model as PiModel } from "@earendil-works/pi-ai";
 import { ConfigConflictError, listConfigs, readConfig, writeConfig } from "./config.js";
+import { ScheduleService } from "./schedules.js";
 import { readSkill, writeSkill } from "./skills-write.js";
 import { UiHost } from "./uihost.js";
 import type { Send, Subscriber } from "./types.js";
@@ -43,6 +44,8 @@ export class SessionService {
   private live = new Map<string, LiveSession>();
   private byFile = new Map<string, string>();
   private recentDirs: string[] = [];
+  /** one scheduler per resolved agent dir: two on one file would both fire a run */
+  private schedulers = new Map<string, ScheduleService>();
   private createRuntime: CreateRuntimeFn;
   /** set by transport: broadcast to all clients; the initiative's own subscribers are skipped via identity */
   broadcast: (msg: S2C, initiator?: unknown) => void = () => {};
@@ -122,6 +125,43 @@ export class SessionService {
           type: "proto.configUpdate",
           doc: await writeConfig(agentDir, msg.docId, msg.mtimeMs, msg.text),
         }));
+        break;
+      }
+      case "proto.scheduleList": {
+        try {
+          reply({ type: "proto.scheduleList", schedules: this.scheduleService().list() });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
+      case "proto.scheduleSave": {
+        try {
+          reply({
+            type: "proto.scheduleSave",
+            schedule: this.scheduleService().save(msg.schedule),
+          });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
+      case "proto.scheduleDelete": {
+        try {
+          this.scheduleService().remove(msg.scheduleId);
+          reply({ type: "proto.scheduleDelete", scheduleId: msg.scheduleId });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
+      case "proto.scheduleRunNow": {
+        try {
+          const run = await this.scheduleService().runNow(msg.scheduleId);
+          reply({ type: "proto.scheduleRun", scheduleId: msg.scheduleId, run });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
         break;
       }
       case "proto.newSession": {
@@ -271,6 +311,43 @@ export class SessionService {
       [...this.live.values()][0]?.agentDir ??
       (requested && requested.trim() ? resolveAgentDir(requested) : getAgentDir())
     );
+  }
+
+  /**
+   * Start the scheduler for one agent dir and hand it back to the caller.
+   *
+   * `main.ts` uses this for pi's default agent dir so cron jobs fire with no
+   * client connected; the returned service is the one {@link shutdown} stops.
+   */
+  startSchedules(agentDir?: string): ScheduleService {
+    return this.scheduleService(agentDir);
+  }
+
+  /**
+   * The schedule store for one agent dir, created and started on first use.
+   *
+   * Keyed by the resolved dir so one `schedules.json` has exactly one timer loop;
+   * resolution is {@link agentDir}'s, like every other agent-dir route.
+   */
+  private scheduleService(agentDir?: string): ScheduleService {
+    const dir = this.agentDir(agentDir);
+    const existing = this.schedulers.get(dir);
+    if (existing) return existing;
+    const svc = new ScheduleService({
+      agentDir: dir,
+      createRun: async (schedule) => {
+        // A triggered run is an ordinary session: nobody is attached (no browser
+        // asked for it), so it surfaces through listAllSessions like any other.
+        // Errors must propagate: runNow turns a throw into status "error".
+        const live = await this.materialize(schedule.cwd, undefined, schedule.agentDir ?? dir);
+        if (schedule.role) await live.session.prompt(`/role ${schedule.role}`);
+        await live.session.prompt(schedule.prompt);
+        return { sessionId: live.id, sessionFile: live.sessionFile };
+      },
+    });
+    svc.start();
+    this.schedulers.set(dir, svc);
+    return svc;
   }
 
   /**
@@ -762,6 +839,8 @@ export class SessionService {
       }
     }
     this.live.clear();
+    for (const svc of this.schedulers.values()) svc.stop();
+    this.schedulers.clear();
   }
 }
 

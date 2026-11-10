@@ -6,8 +6,16 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { UipiClient } from "../src/client.js";
 import { Conn, type WebSocketLike, type SocketFactory } from "../src/conn.js";
 import { deriveTranscript } from "../src/transcript.js";
-import { pathFor, hash8 } from "../src/route.js";
-import type { ConfigId, S2C, SkillInfo, UiEvent } from "@uipi/protocol";
+import { pathFor, hash8, isPagePath, pageIdFromPath } from "../src/route.js";
+import type {
+  ConfigId,
+  S2C,
+  Schedule,
+  ScheduleInput,
+  ScheduleRun,
+  SkillInfo,
+  UiEvent,
+} from "@uipi/protocol";
 
 /** A fake server that answers commands like the real one does. */
 class FakeServer {
@@ -56,6 +64,27 @@ class FakeServer {
   } | null = null;
   /** every proto.reloadConfig the client sent, in order */
   reloads: string[] = [];
+  /** schedules the fake server stores, keyed by id (server-owned fields filled in) */
+  schedules: Schedule[] = [
+    {
+      id: "sch-1",
+      name: "nightly",
+      cron: "0 3 * * *",
+      prompt: "Summarize the repo",
+      role: null,
+      cwd: "/proj",
+      enabled: true,
+      nextRunAt: 5000,
+      lastRunAt: null,
+      history: [],
+    },
+  ];
+  /** last proto.scheduleSave the client sent, for payload assertions */
+  lastScheduleSave: ScheduleInput | null = null;
+  /** every proto.scheduleRunNow the client sent, in order */
+  scheduleRuns: string[] = [];
+  /** how many proto.scheduleList requests the client sent */
+  scheduleLists = 0;
   /** live session ids a reload reaches (the server reports what it applied to) */
   liveSessions: string[] = ["sess-1"];
   /** what a reload throws, or null when it succeeds */
@@ -191,6 +220,46 @@ class FakeServer {
         const next = { mtimeMs: cur.mtimeMs + 1, text: String(msg.text) };
         this.configs.set(id, next);
         reply({ type: "proto.configUpdate", doc: { docId: id, ...next } } as S2C);
+        break;
+      }
+      case "proto.scheduleList":
+        this.scheduleLists++;
+        reply({ type: "proto.scheduleList", schedules: this.schedules } as S2C);
+        break;
+      case "proto.scheduleSave": {
+        // real server: own the id and the derived fields, store, reply with the
+        // schedule as stored
+        const input = msg.schedule as ScheduleInput;
+        this.lastScheduleSave = input;
+        const saved: Schedule = {
+          ...input,
+          id: input.id ?? "sch-new",
+          nextRunAt: input.enabled ? 9000 : null,
+          lastRunAt: null,
+          history: this.schedules.find((s) => s.id === input.id)?.history ?? [],
+        };
+        const at = this.schedules.findIndex((s) => s.id === saved.id);
+        this.schedules =
+          at === -1
+            ? [...this.schedules, saved]
+            : this.schedules.map((s, i) => (i === at ? saved : s));
+        reply({ type: "proto.scheduleSave", schedule: saved } as S2C);
+        break;
+      }
+      case "proto.scheduleDelete": {
+        const id = String(msg.scheduleId);
+        this.schedules = this.schedules.filter((s) => s.id !== id);
+        reply({ type: "proto.scheduleDelete", scheduleId: id } as S2C);
+        break;
+      }
+      case "proto.scheduleRunNow": {
+        const id = String(msg.scheduleId);
+        this.scheduleRuns.push(id);
+        const run: ScheduleRun = { at: 12345, status: "ok", sessionId: "sess-run" };
+        this.schedules = this.schedules.map((s) =>
+          s.id === id ? { ...s, lastRunAt: run.at, history: [run, ...s.history] } : s,
+        );
+        reply({ type: "proto.scheduleRun", scheduleId: id, run } as S2C);
         break;
       }
       case "proto.newSession":
@@ -1280,6 +1349,7 @@ describe("UipiClient headless", () => {
       expect(await client.readSkill("nope")).toBeUndefined();
     });
   });
+
   describe("session names", () => {
     it("attach folds the session's name into sessionName()", async () => {
       server.name = "deploy helper";
@@ -1347,6 +1417,105 @@ describe("UipiClient headless", () => {
       client.detach("sess-1");
       await flush();
       expect(client.sessionName("sess-1")).toBeNull();
+    });
+  });
+
+  describe("schedules", () => {
+    it("refreshSchedules loads the server's schedules", async () => {
+      expect(client.schedules).toEqual([]);
+
+      await client.refreshSchedules();
+
+      expect(client.schedules).toHaveLength(1);
+      expect(client.schedules[0].id).toBe("sch-1");
+      expect(client.schedules[0].nextRunAt).toBe(5000);
+    });
+
+    it("a server-pushed proto.scheduleSave updates state", async () => {
+      await client.refreshSchedules();
+
+      // another frontend saved: the server broadcasts the stored schedule
+      server.sockets[0].push({
+        type: "proto.scheduleSave",
+        schedule: {
+          id: "sch-2",
+          name: "morning",
+          cron: "0 8 * * *",
+          prompt: "Standup notes",
+          role: "work",
+          cwd: "/proj",
+          enabled: true,
+          nextRunAt: 7000,
+          lastRunAt: null,
+          history: [],
+        },
+      } as S2C);
+      await flush();
+
+      expect(client.schedules.map((s) => s.id)).toEqual(["sch-1", "sch-2"]);
+
+      // a second save of the same id replaces in place, never duplicates
+      server.sockets[0].push({
+        type: "proto.scheduleSave",
+        schedule: { ...client.schedules[1], name: "morning-2" },
+      } as S2C);
+      await flush();
+
+      expect(client.schedules.map((s) => s.id)).toEqual(["sch-1", "sch-2"]);
+      expect(client.schedules[1].name).toBe("morning-2");
+    });
+
+    it("saveSchedule sends the input and adopts the server's version", async () => {
+      await client.refreshSchedules();
+
+      const saved = await client.saveSchedule({
+        name: "weekly",
+        cron: "0 9 * * 1",
+        prompt: "Weekly digest",
+        role: null,
+        cwd: "/proj",
+        agentDir: "/home/u/.pi/agent",
+        enabled: true,
+      });
+
+      // agentDir travels inside the input, not as a method argument
+      expect(server.lastScheduleSave?.agentDir).toBe("/home/u/.pi/agent");
+      expect(saved.id).toBe("sch-new");
+      expect(saved.nextRunAt).toBe(9000);
+      expect(client.schedules.map((s) => s.id)).toContain("sch-new");
+    });
+
+    it("deleteSchedule removes the entry", async () => {
+      await client.refreshSchedules();
+      expect(client.schedules).toHaveLength(1);
+
+      await client.deleteSchedule("sch-1");
+
+      expect(client.schedules).toEqual([]);
+    });
+
+    it("runScheduleNow returns the run and triggers a refresh", async () => {
+      await client.refreshSchedules();
+      const listsBefore = server.scheduleLists;
+
+      const run = await client.runScheduleNow("sch-1");
+
+      expect(run).toEqual({ at: 12345, status: "ok", sessionId: "sess-run" });
+      expect(server.scheduleRuns).toEqual(["sch-1"]);
+      // history is current because the list was re-fetched
+      expect(server.scheduleLists).toBe(listsBefore + 1);
+      expect(client.schedules[0].history[0]).toEqual(run);
+    });
+  });
+
+  describe("schedule routing", () => {
+    it("recognises the schedules page", () => {
+      expect(pageIdFromPath("/schedules")).toBe("schedules");
+      expect(isPagePath("/schedules")).toBe(true);
+      // and the existing pages did not stop working
+      expect(pageIdFromPath("/skills")).toBe("skills");
+      expect(pageIdFromPath("/settings")).toBe("settings");
+      expect(pageIdFromPath("/s/abc")).toBeNull();
     });
   });
 });
