@@ -168,6 +168,13 @@ export class UiState {
   sentMessages = new SvelteMap<string, string[]>();
   contextTokens = new SvelteMap<string, number>();
   pendingModel = new SvelteMap<string, { provider: string; modelId: string }>();
+  /**
+   * Each session's own display name, mirrored from the client. Kept beside
+   * `attached`/`contextTokens` rather than read off `sessions`, because a rename
+   * (a `/name` prompt, an extension) arrives as a `proto.sessionName` push and
+   * must show up immediately — the summary list only catches up on a refresh.
+   */
+  sessionNames = new SvelteMap<string, string>();
 
   constructor() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -219,6 +226,12 @@ export class UiState {
     if (!sessionId) return null;
     const role = this.attached.get(sessionId)?.role;
     return typeof role === "string" && role.trim() !== "" ? role : null;
+  }
+
+  /** The session's own name, or null when unnamed. */
+  sessionNameOf(sessionId: string | null): string | null {
+    if (!sessionId) return null;
+    return this.sessionNames.get(sessionId) ?? null;
   }
 
   /** Discoverable slash commands (extension, prompt templates, skills) of a session. */
@@ -363,6 +376,16 @@ export class UiState {
 
   sendPrompt(sessionId: string, text: string): void {
     this.client.sendPrompt(sessionId, text);
+  }
+
+  /**
+   * Set (or clear, with an empty name) one session's display name. pi owns and
+   * persists the name; this only forwards the command. The name itself reaches
+   * the mirrors through `sync()` (the correlated reply and the broadcast).
+   */
+  async setSessionName(sessionId: string, name: string): Promise<void> {
+    await this.client.setSessionName(sessionId, name);
+    this.sync();
   }
 
   /** Ask pi to stop the run, settling an optimistic run pi never picked up. */
@@ -549,6 +572,14 @@ export class UiState {
       const pm = c.pendingModel(id);
       if (pm) this.pendingModel.set(id, pm);
       else this.pendingModel.delete(id);
+      const name = c.sessionName(id);
+      if (name) this.sessionNames.set(id, name);
+      else this.sessionNames.delete(id);
+    }
+    // a detached session takes its name with it (the client drops it too), so a
+    // later row cannot show a label that no longer belongs to anything
+    for (const id of [...this.sessionNames.keys()]) {
+      if (!this.attached.has(id)) this.sessionNames.delete(id);
     }
   }
 }

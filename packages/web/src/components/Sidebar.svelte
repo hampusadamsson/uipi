@@ -5,6 +5,7 @@
   import { Separator } from "$lib/components/ui/separator/index.js";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import TagIcon from "@lucide/svelte/icons/tag";
+  import type { SessionSummary } from "@uipi/protocol";
 
   let { onAfterSelect }: { onAfterSelect?: () => void } = $props();
 
@@ -34,6 +35,15 @@
     const days = (now.getTime() - mtime) / 86400000;
     if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  /**
+   * Row label: the live name first, so a rename shows instantly, then the
+   * summary's displayName (which already prefers `info.name`, but only refreshes
+   * with the list), then the session file's own name.
+   */
+  function rowLabel(s: SessionSummary): string {
+    return ui.sessionNameOf(s.sessionId) ?? (s.displayName || s.sessionFile.split("/").pop() || "");
   }
 </script>
 
@@ -78,7 +88,7 @@
             <span class="inline-block w-2 h-2 rounded-full shrink-0 bg-zinc-600" title="archived"
             ></span>
           {/if}
-          {s.displayName || s.sessionFile.split("/").pop()}
+          {rowLabel(s)}
         </div>
         <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
           <span class="shrink-0">{fmtDate(s.mtime)}</span>

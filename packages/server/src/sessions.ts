@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { C2S, ReloadWhat, S2C, SessionSummary, SkillInfo } from "@uipi/protocol";
 import {
@@ -141,7 +141,8 @@ export class SessionService {
         break;
       }
       case "proto.setRole":
-      case "proto.roleNames": {
+      case "proto.roleNames":
+      case "proto.setSessionName": {
         // session commands that happen to live in the proto.* namespace
         await this.handleSessionCmd(msg, reply);
         break;
@@ -216,6 +217,7 @@ export class SessionService {
       type: "proto.sessionState",
       sessionId: s.id,
       role: mirrorActiveRole(s.session, s.agentDir),
+      name: s.session.sessionName ?? null,
       model: sessionModelRef(s.session),
       thinkingLevel: String(s.session.thinkingLevel ?? ""),
       tools: [...s.session.getActiveToolNames()],
@@ -226,6 +228,24 @@ export class SessionService {
   /** Restate one session's runtime state to its subscribers. */
   private broadcastSessionState(s: LiveSession): void {
     const msg = this.sessionStateMsg(s);
+    for (const sub of s.subscribers.keys()) {
+      try {
+        sub.send(msg);
+      } catch {
+        /* dead subscriber */
+      }
+    }
+  }
+
+  /**
+   * Tell this session's subscribers that its display name changed.
+   *
+   * A dedicated frame, not a whole `proto.sessionState`: the name is the only
+   * thing a rename touches, and the sidebar (`proto.sessions`) is refreshed
+   * separately by `replySessions`.
+   */
+  private broadcastSessionName(s: LiveSession, name: string | null): void {
+    const msg = { type: "proto.sessionName" as const, sessionId: s.id, name };
     for (const sub of s.subscribers.keys()) {
       try {
         sub.send(msg);
@@ -310,6 +330,23 @@ export class SessionService {
           if (isExtensionCommand(s.session, name)) {
             try {
               await s.session.prompt(msg.text);
+            } catch (e) {
+              reply({ type: "proto.error", message: String(e) });
+            }
+            break;
+          }
+          // `/name` is a pi builtin whose handler lives in InteractiveMode, so
+          // prompt() would hand the literal text to the model. Intercept it here
+          // and call the session API directly — the name is pi's own (persisted
+          // as a session_info entry), never a uipi-side label.
+          if (name === "name") {
+            try {
+              // `/name` with no argument clears the name.
+              const rest = msg.text.trim().slice("/name".length).trim();
+              await s.session.setSessionName(rest);
+              this.broadcastSessionName(s, rest || null);
+              // the sidebar shows the name, so every client's list moves too
+              await this.replySessions(reply);
             } catch (e) {
               reply({ type: "proto.error", message: String(e) });
             }
@@ -410,6 +447,20 @@ export class SessionService {
           names: await discoverRoleNames(s.session),
         });
         break;
+      case "proto.setSessionName": {
+        try {
+          // pi trims and persists the name itself; an empty name clears it.
+          const name = msg.name.trim();
+          await s.session.setSessionName(name);
+          this.broadcastSessionName(s, name || null);
+          // the sidebar carries the name as its displayName
+          await this.replySessions(reply);
+          reply({ type: "proto.sessionName", sessionId: s.id, name: name || null });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
       case "pi.cancelQueued": {
         const list =
           msg.kind === "steer"
@@ -458,8 +509,8 @@ export class SessionService {
         await this.replySessions(reply);
         return;
       }
-      const cwd = inferCwdFromSessionFile(file) ?? process.cwd();
-      const live = await this.materialize(cwd, file, undefined);
+      // No cwd guess from the caller: materialize() takes it from the session itself.
+      const live = await this.materialize(undefined, file, undefined);
       // opener is implicitly attached — same as newSession
       live.subscribers.set(sub, true);
       reply(await attachPayload(live));
@@ -485,6 +536,21 @@ export class SessionService {
         /* skip inaccessible */
       }
     }
+    // A live session whose file is already on disk but was missed by the index above
+    // (e.g. it lives in a session dir that is not the default one for its cwd) is a
+    // real, persisted session: list the file's own directory so its real row appears
+    // instead of being replaced by a synthetic "new session" ghost.
+    for (const live of this.live.values()) {
+      const file = live.sessionFile;
+      if (!file || infos.has(file) || !existsSync(file)) continue;
+      try {
+        for (const info of await SessionManager.listAll(dirname(file))) {
+          infos.set(info.path, info);
+        }
+      } catch {
+        /* unreadable session dir: nothing to add */
+      }
+    }
     const liveByFile = new Map<string, LiveSession>();
     for (const live of this.live.values()) {
       if (live.sessionFile) liveByFile.set(live.sessionFile, live);
@@ -497,10 +563,11 @@ export class SessionService {
     );
     pruneSessionRoleCache(entries.map(([path]) => path));
     const out = entries.map(([, info], i) => summary(info, this, roles[i] ?? null));
-    // brand-new live sessions have a session file path but no file on disk yet
+    // brand-new live sessions have a session file path but no file on disk yet; a
+    // file that exists on disk is a real session and must never be shadowed by a ghost
     for (const live of this.live.values()) {
       const file = live.sessionFile;
-      if (!file || infos.has(file)) continue;
+      if (!file || infos.has(file) || existsSync(file)) continue;
       out.push({
         sessionId: live.id,
         sessionFile: file,
@@ -527,7 +594,7 @@ export class SessionService {
   }
 
   private async materialize(
-    cwd: string,
+    cwd: string | undefined,
     sessionFile: string | undefined,
     agentDir: string | undefined,
   ): Promise<LiveSession> {
@@ -535,6 +602,14 @@ export class SessionService {
     if (effectiveAgentDir && !existsSync(effectiveAgentDir)) {
       throw new Error(`agent dir does not exist: ${effectiveAgentDir}`);
     }
+    // pi owns the cwd: opening a session file resolves the cwd stored in its header,
+    // creating one resolves the requested dir. A caller value is a hint at best (a
+    // relative one would break every later SessionManager.list(cwd) lookup), so the
+    // manager's own answer is what the runtime is built with.
+    const manager = sessionFile
+      ? SessionManager.open(sessionFile)
+      : SessionManager.create(cwd ?? process.cwd());
+    const sessionCwd = absoluteCwd(manager.getCwd());
     const runtime = await this.createRuntime(
       async ({ cwd: _c }) => {
         const services = await createAgentSessionServices({ cwd: _c, agentDir: effectiveAgentDir });
@@ -548,12 +623,12 @@ export class SessionService {
           services,
         } as never;
       },
-      {
-        cwd,
-        sessionManager: sessionFile ? SessionManager.open(sessionFile) : SessionManager.create(cwd),
-      } as never,
+      { cwd: sessionCwd, sessionManager: manager } as never,
     );
     const session: AgentSession = (runtime as unknown as { session: AgentSession }).session;
+    // After opening, the session's own report is authoritative: a caller's guess must
+    // never win, and a relative value must never be stored on a LiveSession.
+    const liveCwd = absoluteCwd(openedSessionCwd(session) ?? sessionCwd);
     const id = randomUUID();
     const uiHost = new UiHost(() => live.id, "rpc");
     uiHost.attachSend((m) => {
@@ -567,7 +642,7 @@ export class SessionService {
     });
     const live: LiveSession = {
       id,
-      cwd,
+      cwd: liveCwd,
       agentDir: effectiveAgentDir ?? getAgentDir(),
       sessionFile: session.sessionFile,
       runtime: runtime as unknown as AgentSessionRuntime,
@@ -726,6 +801,7 @@ async function attachPayload(live: LiveSession): Promise<S2C> {
     thinkingLevel: String(live.session.thinkingLevel ?? ""),
     tools: [...live.session.getActiveToolNames()],
     role: mirrorActiveRole(live.session, live.agentDir),
+    name: live.session.sessionName ?? null,
     commands: discoverCommands(live.session),
     statuses: live.uiHost.statuses(),
     cwd: live.cwd,
@@ -890,9 +966,11 @@ const PI_BUILTIN_SLASH_COMMANDS: ReadonlySet<string> = new Set([
 /**
  * Commands the web UI *does* implement, so they must never be refused.
  * `/new` is handled client-side (proto.newSession) and never reaches the
- * server; `/compact` and `/role` are dispatched above.
+ * server; `/compact` and `/role` are dispatched above; `/name` is intercepted
+ * in the `pi.prompt` handler before this refusal and is never reached by the
+ * model.
  */
-const WEB_IMPLEMENTED_COMMANDS: ReadonlySet<string> = new Set(["new", "compact", "role"]);
+const WEB_IMPLEMENTED_COMMANDS: ReadonlySet<string> = new Set(["new", "compact", "role", "name"]);
 
 /**
  * Whether `name` is a pi builtin with no web implementation.
@@ -1148,12 +1226,28 @@ function listSessionModels(session: AgentSession) {
   }));
 }
 
-function inferCwdFromSessionFile(file: string): string | undefined {
-  const marker = "/sessions/";
-  const i = file.lastIndexOf(marker);
-  if (i === -1) return undefined;
-  const dirName = file.slice(i + marker.length).split("/")[0];
-  // pi encodes abs path with "/"→"--" and leading/trailing "--"
-  const decoded = dirName.replace(/^-+/, "").replace(/-+$/, "").split("--").join("/");
-  return decoded || undefined;
+/**
+ * A `LiveSession.cwd` is always absolute.
+ *
+ * Everything downstream (`SessionManager.list(cwd)`, recent dirs, attach payloads)
+ * resolves this value, so a relative one silently points at an unrelated — usually
+ * missing — directory. Anything relative is resolved here instead of being stored.
+ */
+function absoluteCwd(value: string | undefined): string {
+  const raw = value?.trim() ? value : process.cwd();
+  return isAbsolute(raw) ? raw : resolve(raw);
+}
+
+/** The cwd the opened pi session reports, if its session manager exposes one. */
+function openedSessionCwd(session: AgentSession): string | undefined {
+  try {
+    const manager = (session as unknown as { sessionManager?: { getCwd?: unknown } })
+      .sessionManager;
+    const cwd = manager?.getCwd;
+    const value = typeof cwd === "function" ? (cwd as () => unknown).call(manager) : undefined;
+    return typeof value === "string" && value.trim() ? value : undefined;
+  } catch {
+    // routing/display only: an odd session must not break materialize()
+    return undefined;
+  }
 }
