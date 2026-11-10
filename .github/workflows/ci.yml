@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@08c6ba3d7b92f020de0867b0f95c4b8f4a464dfe # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
         with:

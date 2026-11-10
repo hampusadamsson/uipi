@@ -37,7 +37,7 @@ jobs:
       sha_tag: ${{ steps.vars.outputs.sha_tag }}
       extra_tag: ${{ steps.vars.outputs.extra_tag }}
     steps:
-      - uses: actions/checkout@08c6ba3d7b92f020de0867b0f95c4b8f4a464dfe # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - id: vars
         name: Compute image name and tags
@@ -63,10 +63,10 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@08c6ba3d7b92f020de0867b0f95c4b8f4a464dfe # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08940acaaac2c8d6b0b0e5e3 # v3.5.0
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
         if: github.event_name == 'push'
@@ -80,7 +80,7 @@ jobs:
       - name: Build and push by digest
         id: build
         if: github.event_name == 'push'
-        uses: docker/build-push-action@263435318d21b8e681c14492fe892b20f30d0d63 # v6.5.0
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -97,7 +97,7 @@ jobs:
       - name: Build image locally (no push)
         id: build-local
         if: github.event_name != 'push'
-        uses: docker/build-push-action@263435318d21b8e681c14492fe892b20f30d0d63 # v6.5.0
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -168,7 +168,7 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08940acaaac2c8d6b0b0e5e3 # v3.5.0
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
