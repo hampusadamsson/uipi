@@ -10,7 +10,7 @@ import {
 } from "../src/route.js";
 
 describe("session URL routing", () => {
-  const file = "/Users/hampus/.pi/agent/sessions/--tmp--/2026-10-25T09-13-59-697Z_01a1.jsonl";
+  const file = "/home/user/.pi/agent/sessions/--work--/2026-10-25T09-13-59-697Z_01a1.jsonl";
 
   it("hash8 is stable, 8 hex chars, and differs per path", () => {
     const h = hash8(file);

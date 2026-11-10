@@ -26,14 +26,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck (server)
-        run: pnpm --filter @uipi/server check
-
-      - name: Typecheck (client)
-        run: pnpm --filter @uipi/client check
-
-      - name: Typecheck (web)
-        run: pnpm --filter @uipi/web check
+      - name: Typecheck
+        run: pnpm -r run check
 
       - name: Lint
         run: pnpm lint

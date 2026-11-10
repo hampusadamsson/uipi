@@ -1,6 +1,12 @@
 node_modules
-dist
+**/node_modules
+**/dist
+**/test
+**/*.test.ts
+**/*.spec.ts
 .git
 .github
-*.md
 .env*
+*.md
+**/*.md
+**/Users-hampus-program-uipi-packages-server/

@@ -9,3 +9,10 @@ probe*
 *.probe.*
 *.cjs
 test.txt
+
+# mis-expanded path args create dirs like packages/server/Users-me-repo-packages-server/
+packages/*/[A-Za-z]*-[A-Za-z]*-[A-Za-z]*-*/
+
+# local env files — never commit these
+.env
+.env.*

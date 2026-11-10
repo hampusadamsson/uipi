@@ -20,6 +20,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
   },
   server: {
+    // bind all interfaces so the dev UI is reachable from other machines
+    host: "0.0.0.0",
+    // hostnames (not just IPs) are rejected by default; allow anything
+    allowedHosts: true,
     port: 5173,
     proxy: {
       "/ws": { target: "ws://127.0.0.1:8787", ws: true },
