@@ -1,6 +1,28 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+ * JetBrainsMono Nerd Font (patched JetBrains Mono, SIL OFL 1.1 — see
+ * `assets/fonts/OFL.txt`). NerdFonts v3.5.1 ships only ttf/otf in its zips, so
+ * the woff2 files here were converted from the upstream ttf with fontTools.
+ * Vite resolves these relative URLs at build time and emits hashed assets.
+ */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -73,6 +95,9 @@
 }
 
 @theme inline {
+  /* One face for both scales: the UI is a monospace-first Nerd Font surface. */
+  --font-sans: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -116,9 +141,18 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* JetBrains Mono ligatures render `->`/`!=` as single glyphs — unreadable in
+       a UI full of paths and code, so they are off everywhere. */
+    font-variant-ligatures: none;
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.01em;
   }
 }
 
