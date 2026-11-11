@@ -74,6 +74,12 @@ export class UipiClient {
   connected = false;
   sessions: SessionSummary[] = [];
   recentDirs: string[] = [];
+  /**
+   * The server's own defaults for a new session: the directory it would start a
+   * fresh session in and the config dir it was launched with. Absolute paths,
+   * owned by the server — the UI only prefills fields with them.
+   */
+  defaults: { cwd: string; agentDir: string } | null = null;
   models: ModelInfo[] = [];
   /** pi skills discoverable for the active session's cwd */
   skills: SkillInfo[] = [];
@@ -324,6 +330,19 @@ export class UipiClient {
       this.emit();
     } catch {
       /* no live session yet */
+    }
+  }
+
+  /** Ask the server for the defaults a new-session form should prefill with. */
+  async refreshDefaults(): Promise<void> {
+    try {
+      const m = await this.conn.request<{ type: "proto.defaults"; cwd: string; agentDir: string }>({
+        type: "proto.defaults",
+      });
+      this.defaults = { cwd: m.cwd, agentDir: m.agentDir };
+      this.emit();
+    } catch {
+      /* not fatal: the form simply stays empty */
     }
   }
 
@@ -683,6 +702,7 @@ export class UipiClient {
 
   private async onConnect(): Promise<void> {
     void this.refreshRecentDirs();
+    void this.refreshDefaults();
     // the switch to another session may switch cwd, and with it the skills
     void this.syncSkillsForCwd();
     void this.refreshModels();
@@ -792,6 +812,12 @@ export class UipiClient {
       }
       case "proto.sessions": {
         this.sessions = m.sessions;
+        break;
+      }
+      case "proto.defaults": {
+        // request and reply share the discriminant: this branch only sees the
+        // pushed copy (a correlated reply is applied by its caller)
+        this.defaults = { cwd: m.cwd, agentDir: m.agentDir };
         break;
       }
       case "proto.error": {

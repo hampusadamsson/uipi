@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -43,19 +50,41 @@ interface LiveSession {
 export class SessionService {
   private live = new Map<string, LiveSession>();
   private byFile = new Map<string, string>();
-  private recentDirs: string[] = [];
+  /** recent project dirs, `null` until first access (see {@link recentDirs}) */
+  private recentDirsCache: string[] | null = null;
+  /**
+   * The agent dir the recents file was resolved to on first access. Pinned so a
+   * list read from one `recent-dirs.json` is never written back into another when
+   * a later live session changes what {@link agentDir} answers.
+   */
+  private recentDirsAgentDir: string | null = null;
   /** one scheduler per resolved agent dir: two on one file would both fire a run */
   private schedulers = new Map<string, ScheduleService>();
   private createRuntime: CreateRuntimeFn;
+  /**
+   * Startup defaults from `resolveDefaults` (already absolute), used as the
+   * fallback wherever a request leaves the cwd or agent dir out. `undefined`
+   * (tests, embedded use) means "fall back to process.cwd() / getAgentDir()".
+   */
+  private defaults: { cwd: string; agentDir: string } | undefined;
   /** set by transport: broadcast to all clients; the initiative's own subscribers are skipped via identity */
   broadcast: (msg: S2C, initiator?: unknown) => void = () => {};
 
-  constructor(createRuntime: CreateRuntimeFn = createAgentSessionRuntime) {
+  constructor(
+    createRuntime: CreateRuntimeFn = createAgentSessionRuntime,
+    defaults?: { cwd: string; agentDir: string },
+  ) {
     this.createRuntime = createRuntime;
+    this.defaults = defaults;
   }
 
   async handle(msg: C2S, reply: Send, _sub: Subscriber): Promise<void> {
     switch (msg.type) {
+      case "proto.defaults": {
+        // what main() booted with, so a client can show the dirs a session will use
+        reply({ type: "proto.defaults", cwd: this.defaultCwd(), agentDir: this.defaultAgentDir() });
+        break;
+      }
       case "ui.dialogResponse":
       case "ui.selectResponse": {
         const kind = msg.type === "ui.dialogResponse" ? "dialog" : "select";
@@ -75,7 +104,7 @@ export class SessionService {
         break;
       }
       case "proto/recentDirs": {
-        reply({ type: "proto.recentDirs", dirs: this.recentDirs.map((d) => ({ path: d })) });
+        reply({ type: "proto.recentDirs", dirs: this.recentDirs().map((d) => ({ path: d })) });
         break;
       }
       case "proto.skills": {
@@ -300,7 +329,8 @@ export class SessionService {
    *
    * One resolution for `proto.skills`, `proto.skillGet`, `proto.skillWrite` and
    * `proto.config*`: the first live session's agent dir, falling back to the
-   * request's optional `agentDir` and then to pi's default. Those routes carry no
+   * request's optional `agentDir` and then to the configured default (see
+   * {@link defaultAgentDir}). Those routes carry no
    * sessionId, so `[...live.values()][0]` is the same "first live session" choice
    * `proto.listModels` makes. Returning one value here is what keeps the skills
    * list and the skill editor in agreement — resolving them separately is how
@@ -309,8 +339,21 @@ export class SessionService {
   private agentDir(requested?: string): string {
     return (
       [...this.live.values()][0]?.agentDir ??
-      (requested && requested.trim() ? resolveAgentDir(requested) : getAgentDir())
+      (requested && requested.trim() ? resolveAgentDir(requested) : this.defaultAgentDir())
     );
+  }
+
+  /**
+   * The agent dir for a request that names none: the one the server was started
+   * with, else pi's own default. Absolute, because `main()` resolves it.
+   */
+  private defaultAgentDir(): string {
+    return this.defaults?.agentDir ?? getAgentDir();
+  }
+
+  /** The cwd for a request that names none (empty/blank counts as none). */
+  private defaultCwd(): string {
+    return absoluteCwd(this.defaults?.cwd);
   }
 
   /**
@@ -564,8 +607,12 @@ export class SessionService {
     sub: Subscriber,
   ) {
     try {
-      const live = await this.materialize(cwd, undefined, agentDir);
-      this.pushRecentDir(cwd);
+      // an empty/blank/absent cwd means "the dir the server was started with"
+      const targetCwd = cwd?.trim() ? cwd : this.defaultCwd();
+      const live = await this.materialize(targetCwd, undefined, agentDir);
+      // the manager resolves the cwd (relative input, trailing slashes, symlinks): persist
+      // its answer, not the caller's raw value, or recents point at the wrong directory.
+      this.pushRecentDir(live.cwd);
       // creator is implicitly attached — receives the live event stream from now on
       live.subscribers.set(sub, true);
       reply(await attachPayload(live));
@@ -588,6 +635,10 @@ export class SessionService {
       }
       // No cwd guess from the caller: materialize() takes it from the session itself.
       const live = await this.materialize(undefined, file, undefined);
+      // Opening an archived session counts as visiting its project: without this the
+      // project would only become "recent" when a session is created in it, so
+      // archived sessions stayed invisible after a restart.
+      this.pushRecentDir(live.cwd);
       // opener is implicitly attached — same as newSession
       live.subscribers.set(sub, true);
       reply(await attachPayload(live));
@@ -602,32 +653,43 @@ export class SessionService {
     for (const info of await SessionManager.list(process.cwd())) {
       infos.set(info.path, info);
     }
-    const extraCwds = new Set(this.byOfLive());
-    for (const cwd of extraCwds) {
-      if (cwd === process.cwd()) continue;
-      try {
-        for (const info of await SessionManager.list(cwd)) {
-          infos.set(info.path, info);
+    // Live sessions' cwds *and* the persisted recents: a project only ever opened
+    // (never created inline) has no live session, so without the recents its
+    // archived sessions would stay invisible after a restart.
+    const extraCwds = new Set([...this.byOfLive(), ...this.recentDirs()]);
+    extraCwds.delete(process.cwd());
+    await Promise.all(
+      [...extraCwds].map(async (cwd) => {
+        try {
+          for (const info of await SessionManager.list(cwd)) {
+            infos.set(info.path, info);
+          }
+        } catch {
+          /* skip inaccessible */
         }
-      } catch {
-        /* skip inaccessible */
-      }
-    }
+      }),
+    );
     // A live session whose file is already on disk but was missed by the index above
     // (e.g. it lives in a session dir that is not the default one for its cwd) is a
     // real, persisted session: list the file's own directory so its real row appears
     // instead of being replaced by a synthetic "new session" ghost.
+    const recoveryDirs = new Set<string>();
     for (const live of this.live.values()) {
       const file = live.sessionFile;
       if (!file || infos.has(file) || !existsSync(file)) continue;
-      try {
-        for (const info of await SessionManager.listAll(dirname(file))) {
-          infos.set(info.path, info);
-        }
-      } catch {
-        /* unreadable session dir: nothing to add */
-      }
+      recoveryDirs.add(dirname(file));
     }
+    await Promise.all(
+      [...recoveryDirs].map(async (dir) => {
+        try {
+          for (const info of await SessionManager.listAll(dir)) {
+            infos.set(info.path, info);
+          }
+        } catch {
+          /* unreadable session dir: nothing to add */
+        }
+      }),
+    );
     const liveByFile = new Map<string, LiveSession>();
     for (const live of this.live.values()) {
       if (live.sessionFile) liveByFile.set(live.sessionFile, live);
@@ -720,7 +782,9 @@ export class SessionService {
     const live: LiveSession = {
       id,
       cwd: liveCwd,
-      agentDir: effectiveAgentDir ?? getAgentDir(),
+      // a session opened without an explicit dir uses the configured default, not
+      // pi's, so the live session cannot shadow the startup default
+      agentDir: effectiveAgentDir ?? this.defaultAgentDir(),
       sessionFile: session.sessionFile,
       runtime: runtime as unknown as AgentSessionRuntime,
       session,
@@ -820,8 +884,52 @@ export class SessionService {
     for (const live of this.live.values()) live.subscribers.delete(sub);
   }
 
+  /**
+   * The recent dirs, most recent first.
+   *
+   * Loaded from `<agentDir>/recent-dirs.json` on first access and kept in memory
+   * from then on. Recents are a convenience, so a missing, unreadable or corrupt
+   * file is just an empty list — never an error.
+   */
+  private recentDirs(): string[] {
+    if (this.recentDirsCache) return this.recentDirsCache.slice();
+    let dirs: string[] = [];
+    try {
+      const parsed = JSON.parse(readFileSync(this.recentDirsFile(), "utf8")) as {
+        dirs?: unknown;
+      };
+      if (Array.isArray(parsed?.dirs)) {
+        dirs = parsed.dirs.filter((d): d is string => typeof d === "string" && d.trim() !== "");
+      }
+    } catch {
+      /* no file yet, or unreadable/corrupt: start empty */
+    }
+    this.recentDirsCache = dirs.slice(0, RECENT_DIRS_LIMIT);
+    return this.recentDirsCache.slice();
+  }
+
+  /** The file the recents live in, under the same agent dir every other route uses. */
+  private recentDirsFile(): string {
+    this.recentDirsAgentDir ??= this.agentDir();
+    return join(this.recentDirsAgentDir, "recent-dirs.json");
+  }
+
+  /** Write the recents back atomically; a read-only agent dir must not fail a request. */
+  private persistRecentDirs(): void {
+    const file = this.recentDirsFile();
+    try {
+      atomicWrite(file, `${JSON.stringify({ dirs: this.recentDirs() }, null, 2)}\n`);
+    } catch (e) {
+      console.warn(`sessions: could not persist ${file}: ${String(e)}`);
+    }
+  }
+
   private pushRecentDir(dir: string): void {
-    this.recentDirs = [dir, ...this.recentDirs.filter((d) => d !== dir)].slice(0, 20);
+    this.recentDirsCache = [dir, ...this.recentDirs().filter((d) => d !== dir)].slice(
+      0,
+      RECENT_DIRS_LIMIT,
+    );
+    this.persistRecentDirs();
   }
 
   async shutdown(): Promise<void> {
@@ -841,6 +949,29 @@ export class SessionService {
     this.live.clear();
     for (const svc of this.schedulers.values()) svc.stop();
     this.schedulers.clear();
+  }
+}
+
+/** How many project dirs the sidebar remembers (and how many we re-list on load). */
+const RECENT_DIRS_LIMIT = 20;
+
+/** Distinguishes tmp files written by concurrent saves within this process. */
+let tmpCounter = 0;
+
+/**
+ * Replace `path` with `text` via a sibling tmp file + rename.
+ *
+ * Same idiom as `schedules.ts`'s sync write (minus the backup): the sibling tmp name
+ * is unique per call so two writes in flight cannot share — and clobber — one file,
+ * and the `finally` drops a temp left behind by a failed write or rename.
+ */
+function atomicWrite(path: string, text: string): void {
+  const tmp = `${path}.${process.pid}.${tmpCounter++}.tmp`;
+  try {
+    writeFileSync(tmp, text, "utf8");
+    renameSync(tmp, path);
+  } finally {
+    rmSync(tmp, { force: true });
   }
 }
 

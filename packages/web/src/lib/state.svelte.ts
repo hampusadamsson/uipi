@@ -147,6 +147,8 @@ export class UiState {
   connected = $state(false);
   sessions = $state<SessionSummary[]>([]);
   recentDirs = $state<string[]>([]);
+  /** the server's defaults for a new session ({@link UipiClient.defaults}) */
+  defaults = $state<{ cwd: string; agentDir: string } | null>(null);
   models = $state<ModelInfo[]>([]);
   /** pi's skills for {@link skillsCwd} (user skills + `<cwd>/.pi/skills`) */
   skills = $state<SkillInfo[]>([]);
@@ -571,6 +573,7 @@ export class UiState {
     this.connected = c.connected;
     this.sessions = c.sessions;
     this.recentDirs = c.recentDirs;
+    this.defaults = c.defaults;
     this.models = c.models;
     this.skills = c.skills;
     this.skillsCwd = c.skillsCwd ?? c.active?.cwd ?? null;

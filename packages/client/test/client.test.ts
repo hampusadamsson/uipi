@@ -85,6 +85,13 @@ class FakeServer {
   scheduleRuns: string[] = [];
   /** how many proto.scheduleList requests the client sent */
   scheduleLists = 0;
+  /** defaults a new-session form should prefill with (absolute, server-owned) */
+  defaults: { cwd: string; agentDir: string } = {
+    cwd: "/home/u/proj",
+    agentDir: "/home/u/.pi/agent",
+  };
+  /** how many proto.defaults requests the client sent */
+  defaultRequests = 0;
   /** live session ids a reload reaches (the server reports what it applied to) */
   liveSessions: string[] = ["sess-1"];
   /** what a reload throws, or null when it succeeds */
@@ -139,6 +146,10 @@ class FakeServer {
         break;
       case "proto/recentDirs":
         reply({ type: "proto.recentDirs", dirs: [{ path: "/proj" }] } as S2C);
+        break;
+      case "proto.defaults":
+        this.defaultRequests++;
+        reply({ type: "proto.defaults", ...this.defaults } as S2C);
         break;
       case "proto.skills":
         reply({ type: "proto.skills", skills: this.skills } as S2C);
@@ -478,6 +489,38 @@ describe("UipiClient headless", () => {
     expect(client.sessions).toHaveLength(1);
     expect(client.models).toHaveLength(1);
     expect(client.recentDirs).toEqual(["/proj"]);
+  });
+
+  it("fetches the server defaults on connect and stores the reply", () => {
+    expect(server.defaultRequests).toBe(1);
+    expect(client.defaults).toEqual({ cwd: "/home/u/proj", agentDir: "/home/u/.pi/agent" });
+  });
+
+  it("refreshes the defaults on demand, notifying listeners", async () => {
+    let seen: { cwd: string; agentDir: string } | null = null;
+    client.onChange(() => {
+      seen = client.defaults;
+    });
+    server.defaults = { cwd: "/other", agentDir: "/cfg" };
+    await client.refreshDefaults();
+    expect(server.defaultRequests).toBe(2);
+    expect(client.defaults).toEqual({ cwd: "/other", agentDir: "/cfg" });
+    expect(seen).toEqual({ cwd: "/other", agentDir: "/cfg" });
+  });
+
+  it("folds a pushed proto.defaults into state", async () => {
+    let notified = 0;
+    client.onChange(() => {
+      notified++;
+    });
+    server.sockets[0].push({
+      type: "proto.defaults",
+      cwd: "/pushed",
+      agentDir: "/pushed/agent",
+    } as S2C);
+    await flush();
+    expect(client.defaults).toEqual({ cwd: "/pushed", agentDir: "/pushed/agent" });
+    expect(notified).toBeGreaterThan(0);
   });
 
   it("attaches to a new session and exposes its snapshot", async () => {
@@ -1505,6 +1548,76 @@ describe("UipiClient headless", () => {
       // history is current because the list was re-fetched
       expect(server.scheduleLists).toBe(listsBefore + 1);
       expect(client.schedules[0].history[0]).toEqual(run);
+    });
+  });
+
+  describe("session names", () => {
+    it("attach folds the session's name into sessionName()", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+    });
+
+    it("an unnamed session reports null, not an empty string", async () => {
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBeNull();
+      expect(client.sessionName("never-seen")).toBeNull();
+    });
+
+    it("setSessionName sends the frame and adopts the reply's name", async () => {
+      await client.newSession("/proj");
+      await client.setSessionName("sess-1", "deploy helper");
+
+      expect(server.sessionNames).toEqual([{ sessionId: "sess-1", name: "deploy helper" }]);
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+    });
+
+    it("a pushed proto.sessionName updates the getter without a command", async () => {
+      await client.newSession("/proj");
+      server.sockets[0].push({
+        type: "proto.sessionName",
+        sessionId: "sess-1",
+        name: "renamed externally",
+      } as S2C);
+      await flush();
+
+      expect(client.sessionName("sess-1")).toBe("renamed externally");
+    });
+
+    it("a cleared name falls back to null", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+
+      server.sockets[0].push({ type: "proto.sessionName", sessionId: "sess-1", name: "" } as S2C);
+      await flush();
+      expect(client.sessionName("sess-1")).toBeNull();
+    });
+
+    it("a proto.sessionState rehydrates the name (and clears a stale one)", async () => {
+      server.name = "first name";
+      await client.newSession("/proj");
+
+      server.sockets[0].push({
+        type: "proto.sessionState",
+        sessionId: "sess-1",
+        role: null,
+        name: "second name",
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "medium",
+        tools: [],
+        commands: [],
+      } as S2C);
+      await flush();
+      expect(client.sessionName("sess-1")).toBe("second name");
+    });
+
+    it("a detached session's name is dropped with the rest of its state", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      client.detach("sess-1");
+      await flush();
+      expect(client.sessionName("sess-1")).toBeNull();
     });
   });
 

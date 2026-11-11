@@ -177,6 +177,8 @@ export type C2S =
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
+  // request and reply share the discriminant; only the reply carries the values
+  | { type: "proto.defaults" }
   | { type: "proto/listModels" }
   | { type: "pi.prompt"; sessionId: string; text: string }
   | { type: "pi.steer"; sessionId: string; text: string }
@@ -310,6 +312,8 @@ export type S2C = S2CBase &
     | { type: "proto.error"; message: string; requestId?: string }
     | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
     | { type: "proto.recentDirs"; dirs: RecentDir[] }
+    // same discriminant as the request, like `proto.recentDirs`; reply carries the values
+    | { type: "proto.defaults"; cwd: string; agentDir: string }
     | { type: "proto.skills"; skills: SkillInfo[] }
     /**
      * Ids plus mtimes only: the editor needs the list to know what exists and
