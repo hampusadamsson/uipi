@@ -60,7 +60,7 @@
     </Popover.Trigger>
     <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-2" align="end">
       <div class="text-[10px] text-muted-foreground px-1">role — a preset, not a lock</div>
-      <div class="max-h-72 overflow-y-auto">
+      <div class="max-h-[min(18rem,50vh)] overflow-y-auto">
         {#each items as item (item.kind + item.label)}
           <button
             class="w-full text-left text-xs px-3 py-2 min-h-8 rounded-md hover:bg-accent hover:text-accent-foreground {item.current

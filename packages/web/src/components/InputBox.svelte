@@ -18,6 +18,16 @@
   }
   let acIndex = $state(-1);
   let acItems = $state<string[]>([]);
+  let acPanel = $state<HTMLElement | undefined>(undefined);
+
+  // keep the keyboard cursor visible inside the (height-capped) panel
+  $effect(() => {
+    const idx = acIndex;
+    const count = acItems.length;
+    if (idx < 0 || count === 0) return;
+    const active = acPanel?.querySelector<HTMLElement>('[data-active="true"]');
+    active?.scrollIntoView?.({ block: "nearest" });
+  });
 
   const attach = $derived(
     ui.attached.get(sessionId) as
@@ -140,10 +150,12 @@
   {/if}
   {#if acItems.length > 0}
     <div
-      class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1"
+      bind:this={acPanel}
+      class="rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30 mb-1 max-h-56 overflow-y-auto overscroll-contain"
     >
       {#each acItems as s, i (s)}
         <button
+          data-active={i === acIndex ? "true" : "false"}
           class="w-full text-left text-xs px-3 py-2 cursor-pointer min-h-9 {i === acIndex
             ? 'bg-accent'
             : ''}"

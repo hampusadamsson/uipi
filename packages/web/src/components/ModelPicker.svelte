@@ -41,7 +41,7 @@
   <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-0" align="end">
     <Command.Root shouldFilter={false}>
       <Command.Input placeholder="filter (e.g. claude, gpt)…" bind:value={filter} />
-      <Command.List class="max-h-96">
+      <Command.List class="max-h-[min(24rem,50vh)]">
         {#each visible as m (m.provider + m.modelId)}
           <Command.Item
             value="{m.provider}/{m.modelId}"
