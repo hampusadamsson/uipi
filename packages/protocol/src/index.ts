@@ -51,6 +51,12 @@ export type C2S =
     }
   | { type: "proto.setRole"; sessionId: string; role: string | null; reload?: boolean }
   /**
+   * Set (or, with an empty string, clear) the session's display name. pi owns
+   * the name: it appends a `session_info` entry and emits
+   * `session_info_changed`, so the change is durable, not a uipi-side label.
+   */
+  | { type: "proto.setSessionName"; sessionId: string; name: string }
+  /**
    * Ask for the role names the `/role` extension command offers as argument
    * completions. Same discriminant as the reply, like `proto.recentDirs`: the
    * request carries no payload beyond the session, so the direction is
@@ -288,6 +294,8 @@ export type S2C = S2CBase &
         tools: string[];
         /** active role name, or null when roleless */
         role: string | null;
+        /** the session's own display name, or null when unnamed */
+        name: string | null;
         /** discoverable slash commands (extension, prompt templates, skills) */
         commands: { name: string; description?: string }[];
         /** extension status slots (key → text) */
@@ -317,11 +325,23 @@ export type S2C = S2CBase &
         sessionId: string;
         /** active role name, or null when roleless */
         role: string | null;
+        /** the session's own display name, or null when unnamed */
+        name: string | null;
         model: { provider: string; modelId: string } | null;
         thinkingLevel: string;
         tools: string[];
         /** discoverable slash commands (extension, prompt templates, skills) */
         commands: { name: string; description?: string }[];
+      }
+    | {
+        /**
+         * The session's display name after it changed. `null` (or "") means the
+         * name was cleared. Sent to the session's subscribers, and as the reply
+         * to `proto.setSessionName`.
+         */
+        type: "proto.sessionName";
+        sessionId: string;
+        name: string | null;
       }
     | {
         /** extension status slots (key → text), replaced wholesale */

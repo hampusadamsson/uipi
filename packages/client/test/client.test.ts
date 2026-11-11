@@ -21,6 +21,10 @@ class FakeServer {
   sessionId = "sess-1";
   /** runtime state the fake server paints into attach / sessionState */
   role: string | null = null;
+  /** the session's own display name, as pi persists it */
+  name: string | null = null;
+  /** every proto.setSessionName frame the client sent, in order */
+  sessionNames: { sessionId: string; name: string }[] = [];
   model: { provider: string; modelId: string } | null = { provider: "p", modelId: "m" };
   thinkingLevel = "medium";
   tools = ["read"];
@@ -200,6 +204,7 @@ class FakeServer {
           thinkingLevel: this.thinkingLevel,
           tools: this.tools,
           role: this.role,
+          name: this.name,
           commands: [{ name: "role", description: "Switch agent role" }],
           statuses: this.statuses,
           cwd: "/proj",
@@ -209,6 +214,16 @@ class FakeServer {
           sessionFile: this.sessionFile,
         } as S2C);
         break;
+      case "proto.setSessionName": {
+        // real server: pi trims and persists the name itself (an empty name
+        // clears it), then broadcasts it and replies with the same frame
+        this.sessionNames.push({ sessionId: String(msg.sessionId), name: String(msg.name) });
+        const name = String(msg.name).trim();
+        this.name = name || null;
+        socket.push({ type: "proto.sessionName", sessionId: this.sessionId, name: this.name });
+        reply({ type: "proto.sessionName", sessionId: this.sessionId, name: this.name } as S2C);
+        break;
+      }
       case "proto.setRole": {
         // real server: translate into the roles extension's own slash command,
         // which appends a `role-switch` entry (a pi.evt) and paints its status
@@ -240,6 +255,7 @@ class FakeServer {
           type: "proto.sessionState",
           sessionId: this.sessionId,
           role,
+          name: this.name,
           model: this.model,
           thinkingLevel: this.thinkingLevel,
           tools: this.tools,
@@ -1262,6 +1278,75 @@ describe("UipiClient headless", () => {
       await client.newSession("/proj");
 
       expect(await client.readSkill("nope")).toBeUndefined();
+    });
+  });
+  describe("session names", () => {
+    it("attach folds the session's name into sessionName()", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+    });
+
+    it("an unnamed session reports null, not an empty string", async () => {
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBeNull();
+      expect(client.sessionName("never-seen")).toBeNull();
+    });
+
+    it("setSessionName sends the frame and adopts the reply's name", async () => {
+      await client.newSession("/proj");
+      await client.setSessionName("sess-1", "deploy helper");
+
+      expect(server.sessionNames).toEqual([{ sessionId: "sess-1", name: "deploy helper" }]);
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+    });
+
+    it("a pushed proto.sessionName updates the getter without a command", async () => {
+      await client.newSession("/proj");
+      server.sockets[0].push({
+        type: "proto.sessionName",
+        sessionId: "sess-1",
+        name: "renamed externally",
+      } as S2C);
+      await flush();
+
+      expect(client.sessionName("sess-1")).toBe("renamed externally");
+    });
+
+    it("a cleared name falls back to null", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      expect(client.sessionName("sess-1")).toBe("deploy helper");
+
+      server.sockets[0].push({ type: "proto.sessionName", sessionId: "sess-1", name: "" } as S2C);
+      await flush();
+      expect(client.sessionName("sess-1")).toBeNull();
+    });
+
+    it("a proto.sessionState rehydrates the name (and clears a stale one)", async () => {
+      server.name = "first name";
+      await client.newSession("/proj");
+
+      server.sockets[0].push({
+        type: "proto.sessionState",
+        sessionId: "sess-1",
+        role: null,
+        name: "second name",
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "medium",
+        tools: [],
+        commands: [],
+      } as S2C);
+      await flush();
+      expect(client.sessionName("sess-1")).toBe("second name");
+    });
+
+    it("a detached session's name is dropped with the rest of its state", async () => {
+      server.name = "deploy helper";
+      await client.newSession("/proj");
+      client.detach("sess-1");
+      await flush();
+      expect(client.sessionName("sess-1")).toBeNull();
     });
   });
 });

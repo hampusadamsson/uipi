@@ -127,6 +127,14 @@ export class UipiClient {
   private sentMessagesById = new Map<string, string[]>();
   private contextTokensById = new Map<string, number>();
   private pendingModelById = new Map<string, { provider: string; modelId: string }>();
+  /**
+   * The session's own display name, as pi persists it (unnamed sessions have no
+   * entry). Folded from `proto.attached` / `proto.sessionState` so a reconnect
+   * rehydrates it, and from the `proto.sessionName` push so a rename — typed as
+   * `/name`, set by an extension, or sent by {@link setSessionName} — shows up
+   * without a refresh.
+   */
+  private sessionNameById = new Map<string, string>();
   /** cwd {@link skills} was fetched for, so a re-fetch only happens on change */
   private loadedSkillsCwd: string | null = null;
   private uiEvents: UiEvent[] = [];
@@ -259,6 +267,11 @@ export class UipiClient {
     return this.contextTokensById.get(sessionId);
   }
 
+  /** The session's own display name, or null when it is unnamed. */
+  sessionName(sessionId: string): string | null {
+    return this.sessionNameById.get(sessionId) ?? null;
+  }
+
   /** Locally echoed model choice, set until the server confirms it. */
   pendingModel(sessionId: string): { provider: string; modelId: string } | undefined {
     return this.pendingModelById.get(sessionId);
@@ -352,6 +365,22 @@ export class UipiClient {
     await this.onAttached(m);
   }
 
+  /**
+   * Set (or, with an empty string, clear) the session's display name. pi owns the
+   * name: it trims, persists and echoes it back, so the reply is authoritative.
+   * The broadcast copy an unrenamed subscriber gets is folded in by
+   * {@link handle}, so both paths land in {@link sessionNameById}.
+   */
+  async setSessionName(sessionId: string, name: string): Promise<void> {
+    const m = await this.conn.request<
+      | { type: "proto.sessionName"; sessionId: string; name: string | null }
+      | { type: "proto.error"; message: string }
+    >({ type: "proto.setSessionName", sessionId, name });
+    if (m.type === "proto.error") this.setError(m.message);
+    else this.storeSessionName(sessionId, m.name);
+    this.emit();
+  }
+
   async attachTo(sessionId: string): Promise<void> {
     const m = await this.conn.request<AttachedMsg>({ type: "proto.attach", sessionId });
     await this.onAttached(m);
@@ -366,6 +395,7 @@ export class UipiClient {
     this.compactionOnlyById.delete(sessionId);
     this.liveEventsById.delete(sessionId);
     this.sentMessagesById.delete(sessionId);
+    this.sessionNameById.delete(sessionId);
     if (this.activeId === sessionId) {
       this.activeId = [...this.attachedSessions.keys()][0] ?? null;
       // the switch to another session may switch cwd, and with it the skills
@@ -602,6 +632,7 @@ export class UipiClient {
   }
 
   private async onAttached(a: AttachedMsg): Promise<void> {
+    this.storeSessionName(a.sessionId, a.name);
     const session: AttachedSession = { ...a, events: [] };
     this.attachedSessions.set(session.sessionId, session);
     this.liveEventsById.set(session.sessionId, []);
@@ -634,6 +665,17 @@ export class UipiClient {
     this.emit();
   }
 
+  /**
+   * Record one session's own name. pi reports a cleared name as null or "", and
+   * neither is a name worth remembering — the entry is dropped so the sidebar
+   * falls back to the summary instead of rendering a blank label.
+   */
+  private storeSessionName(sessionId: string, name: string | null): void {
+    const clean = typeof name === "string" ? name.trim() : "";
+    if (clean) this.sessionNameById.set(sessionId, clean);
+    else this.sessionNameById.delete(sessionId);
+  }
+
   /** Store a doc read or re-read from the server (its mtime is authoritative). */
   private storeConfigDoc(doc: ConfigDoc): void {
     this.configDocs.set(doc.docId, doc);
@@ -661,7 +703,14 @@ export class UipiClient {
             commands: m.commands,
           });
         }
+        this.storeSessionName(m.sessionId, m.name);
         this.pendingModelById.delete(m.sessionId);
+        break;
+      }
+      case "proto.sessionName": {
+        // broadcast after any rename (a `/name` prompt, an extension, or our own
+        // proto.setSessionName) — the correlated reply is applied by the caller
+        this.storeSessionName(m.sessionId, m.name);
         break;
       }
       case "proto.statuses": {
@@ -697,6 +746,7 @@ export class UipiClient {
       case "proto.attached": {
         const a = m as unknown as AttachedSession;
         a.events = [];
+        this.storeSessionName(m.sessionId, m.name);
         this.attachedSessions.set(m.sessionId, a);
         this.liveEventsById.set(m.sessionId, []);
         this.sentMessagesById.set(m.sessionId, []);

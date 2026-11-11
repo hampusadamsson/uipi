@@ -61,6 +61,8 @@
       : undefined,
   );
   const modelShown = $derived(ui.modelOf(ui.activeId));
+  // the active session's own name, or nothing: no placeholder when unnamed
+  const sessionName = $derived(ui.sessionNameOf(ui.activeId));
   const run = $derived<RunState>(ui.stateOf(ui.activeId));
   const runLabel = $derived<Record<RunState, string>>({
     idle: "idle",
@@ -112,6 +114,11 @@
           class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
           >{runLabel[run]}</Badge
         >
+        {#if sessionName}
+          <span class="text-xs font-medium truncate max-w-40 md:max-w-64 shrink" title={sessionName}
+            >{sessionName}</span
+          >
+        {/if}
         <span class="text-xs text-muted-foreground hidden lg:inline">
           {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
         </span>
