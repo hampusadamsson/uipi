@@ -34,6 +34,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production UIPI_PORT=8787 UIPI_HOST=0.0.0.0
+# New-session defaults (cwd for new sessions, pi's config dir); both are
+# overridable at run time, e.g. `docker run -e UIPI_CWD=/app ...`.
+ENV UIPI_CWD=/workspace UIPI_AGENT_DIR=/home/uipi/.pi/agent
 # @uipi/protocol is type-only for the server, so it is deliberately not shipped.
 COPY --from=build /app/packages/server/dist packages/server/dist
 COPY --from=build /app/packages/server/package.json packages/server/package.json

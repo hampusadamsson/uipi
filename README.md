@@ -114,17 +114,39 @@ publish flag is all you need. It runs as a non-root `uipi` user with a writable
 
 ## Configuration
 
-The server reads four environment variables (nothing auto-loads a `.env` file —
+The server reads six environment variables (nothing auto-loads a `.env` file —
 export them, or set them inline, e.g. `UIPI_PORT=9000 pnpm start`):
 
-| Variable      | Default             | Purpose                                     |
-| ------------- | ------------------- | ------------------------------------------- |
-| `UIPI_PORT`   | `8787`              | HTTP + WebSocket listen port.               |
-| `UIPI_HOST`   | `127.0.0.1`         | Bind address; use `0.0.0.0` in a container. |
-| `UIPI_STATIC` | `packages/web/dist` | Built web assets to serve.                  |
-| `HOME`        | your home dir       | Expands a leading `~/` in the agent dir.    |
+| Variable         | Default             | Purpose                                     |
+| ---------------- | ------------------- | ------------------------------------------- |
+| `UIPI_PORT`      | `8787`              | HTTP + WebSocket listen port.               |
+| `UIPI_HOST`      | `127.0.0.1`         | Bind address; use `0.0.0.0` in a container. |
+| `UIPI_STATIC`    | `packages/web/dist` | Built web assets to serve.                  |
+| `UIPI_CWD`       | `process.cwd()`     | Default project directory for new sessions. |
+| `UIPI_AGENT_DIR` | `~/.pi/agent`       | Default pi config dir for new sessions.     |
+| `HOME`           | your home dir       | Expands a leading `~/` in the agent dir.    |
 
 All are optional — the defaults are what `pnpm dev` and `pnpm start` use.
+
+Every setting is also available as a CLI flag. Precedence is
+**CLI flag > environment variable > default**:
+
+| Flag                 | Env var          | Default             |
+| -------------------- | ---------------- | ------------------- |
+| `--cwd <path>`       | `UIPI_CWD`       | `process.cwd()`     |
+| `--agent-dir <path>` | `UIPI_AGENT_DIR` | `~/.pi/agent`       |
+| `--port <n>`         | `UIPI_PORT`      | `8787`              |
+| `--host <addr>`      | `UIPI_HOST`      | `127.0.0.1`         |
+| `--static <dir>`     | `UIPI_STATIC`    | `packages/web/dist` |
+| `--help`, `-h`       | —                | print usage         |
+
+Both `--flag value` and `--flag=value` are accepted; an unknown `--flag` exits `2`
+and `--help` prints usage for all of the above. The new-session modal prefills its
+cwd and agent dir from whichever value wins:
+
+```sh
+pnpm start -- --cwd ~/code/app --port 9000
+```
 
 ## Credentials
 

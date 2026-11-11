@@ -35,10 +35,15 @@ afterEach(() => {
 });
 
 describe("settings tab", () => {
-  it("is declared by the page registry alone, next to Skills", () => {
+  it("is declared by the page registry alone, next to Skills and Schedules", () => {
     render("/");
 
-    expect(tabs().map((t) => t.textContent?.trim())).toEqual(["Sessions", "Skills", "Settings"]);
+    expect(tabs().map((t) => t.textContent?.trim())).toEqual([
+      "Sessions",
+      "Skills",
+      "Schedules",
+      "Settings",
+    ]);
   });
 
   it("clicking it pushes /settings, sets ui.page and renders the settings page", async () => {

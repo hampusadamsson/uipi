@@ -8,6 +8,7 @@ import {
   isPagePath,
   pageIdFromPath,
   SKILLS_PAGE,
+  SCHEDULES_PAGE,
   SETTINGS_PAGE,
   type AttachedSession,
   type ConfigConflictView,
@@ -24,6 +25,10 @@ import type {
   ConfigId,
   ModelInfo,
   ReloadWhat,
+  Schedule,
+  ScheduleId,
+  ScheduleInput,
+  ScheduleRun,
   SessionSummary,
   SkillInfo,
   UiEvent,
@@ -42,6 +47,7 @@ export type { PageId };
 /** The route each page id owns — the inverse of {@link pageIdFromPath}. */
 const PAGE_PATHS: Record<PageId, string> = {
   skills: SKILLS_PAGE,
+  schedules: SCHEDULES_PAGE,
   settings: SETTINGS_PAGE,
 };
 
@@ -141,11 +147,15 @@ export class UiState {
   connected = $state(false);
   sessions = $state<SessionSummary[]>([]);
   recentDirs = $state<string[]>([]);
+  /** the server's defaults for a new session ({@link UipiClient.defaults}) */
+  defaults = $state<{ cwd: string; agentDir: string } | null>(null);
   models = $state<ModelInfo[]>([]);
   /** pi's skills for {@link skillsCwd} (user skills + `<cwd>/.pi/skills`) */
   skills = $state<SkillInfo[]>([]);
   /** the cwd the mirrored {@link skills} were discovered for */
   skillsCwd = $state<string | null>(null);
+  /** every schedule the server knows, server-owned fields included */
+  schedules = $state<Schedule[]>([]);
   /** cwd the skills page is scoped to: discovered cwd, else the newest recent dir */
   currentSkillsCwd(): string | null {
     return this.skillsCwd ?? this.recentDirs[0] ?? null;
@@ -320,6 +330,37 @@ export class UiState {
    */
   async readSkill(name: string): Promise<{ frontmatter: string; body: string } | undefined> {
     return this.client.readSkill(name);
+  }
+
+  // ----------------------------------------------------------- schedules
+  // Reads go through the {@link schedules} mirror (see the note above); these
+  // wrappers only forward the commands, so the page owns no protocol logic.
+
+  /** Re-read every schedule, server-owned fields (`nextRunAt`, history) included. */
+  async refreshSchedules(): Promise<void> {
+    await this.client.refreshSchedules();
+  }
+
+  /**
+   * Create or overwrite one schedule. The server owns `id`, `nextRunAt`,
+   * `lastRunAt` and `history`, so the returned schedule is its version.
+   */
+  async saveSchedule(input: ScheduleInput): Promise<Schedule> {
+    const saved = await this.client.saveSchedule(input);
+    this.sync();
+    return saved;
+  }
+
+  async deleteSchedule(id: ScheduleId): Promise<void> {
+    await this.client.deleteSchedule(id);
+    this.sync();
+  }
+
+  /** Run one schedule now; the client re-fetches the list so history is current. */
+  async runScheduleNow(id: ScheduleId): Promise<ScheduleRun> {
+    const run = await this.client.runScheduleNow(id);
+    this.sync();
+    return run;
   }
 
   async newSession(cwd: string, agentDir?: string) {
@@ -532,9 +573,11 @@ export class UiState {
     this.connected = c.connected;
     this.sessions = c.sessions;
     this.recentDirs = c.recentDirs;
+    this.defaults = c.defaults;
     this.models = c.models;
     this.skills = c.skills;
     this.skillsCwd = c.skillsCwd ?? c.active?.cwd ?? null;
+    this.schedules = c.schedules;
     this.activeId = c.activeId;
     this.syncPage();
     for (const [id, doc] of c.configDocs) {

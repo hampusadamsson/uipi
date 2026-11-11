@@ -3,6 +3,10 @@ import type {
   ConfigId,
   ModelInfo,
   ReloadWhat,
+  Schedule,
+  ScheduleId,
+  ScheduleInput,
+  ScheduleRun,
   SessionSummary,
   SkillInfo,
   C2S,
@@ -70,9 +74,17 @@ export class UipiClient {
   connected = false;
   sessions: SessionSummary[] = [];
   recentDirs: string[] = [];
+  /**
+   * The server's own defaults for a new session: the directory it would start a
+   * fresh session in and the config dir it was launched with. Absolute paths,
+   * owned by the server — the UI only prefills fields with them.
+   */
+  defaults: { cwd: string; agentDir: string } | null = null;
   models: ModelInfo[] = [];
   /** pi skills discoverable for the active session's cwd */
   skills: SkillInfo[] = [];
+  /** every schedule the server knows, server-owned fields included */
+  schedules: Schedule[] = [];
   activeId: string | null = null;
   error: string | null = null;
   /**
@@ -318,6 +330,19 @@ export class UipiClient {
       this.emit();
     } catch {
       /* no live session yet */
+    }
+  }
+
+  /** Ask the server for the defaults a new-session form should prefill with. */
+  async refreshDefaults(): Promise<void> {
+    try {
+      const m = await this.conn.request<{ type: "proto.defaults"; cwd: string; agentDir: string }>({
+        type: "proto.defaults",
+      });
+      this.defaults = { cwd: m.cwd, agentDir: m.agentDir };
+      this.emit();
+    } catch {
+      /* not fatal: the form simply stays empty */
     }
   }
 
@@ -573,6 +598,61 @@ export class UipiClient {
     await this.syncSkillsForCwd(this.active?.cwd, true);
   }
 
+  /** Fetch every schedule, server-owned fields (`nextRunAt`, history) included. */
+  async refreshSchedules(): Promise<void> {
+    try {
+      const m = await this.conn.request<{ type: "proto.scheduleList"; schedules: Schedule[] }>({
+        type: "proto.scheduleList",
+      });
+      this.schedules = m.schedules ?? [];
+      this.emit();
+    } catch (e) {
+      this.setError(String(e));
+    }
+  }
+
+  /**
+   * Create or overwrite one schedule. The server owns `id`, `nextRunAt`,
+   * `lastRunAt` and `history`, so its reply is the version the store adopts —
+   * replaced by id in place, appended when it is new.
+   */
+  async saveSchedule(input: ScheduleInput): Promise<Schedule> {
+    const m = await this.conn.request<{ type: "proto.scheduleSave"; schedule: Schedule }>({
+      type: "proto.scheduleSave",
+      schedule: input,
+    });
+    const saved = m.schedule;
+    const at = this.schedules.findIndex((s) => s.id === saved.id);
+    this.schedules =
+      at === -1 ? [...this.schedules, saved] : this.schedules.map((s, i) => (i === at ? saved : s));
+    this.emit();
+    return saved;
+  }
+
+  /** Remove one schedule by id. */
+  async deleteSchedule(scheduleId: ScheduleId): Promise<void> {
+    await this.conn.request<{ type: "proto.scheduleDelete"; scheduleId: ScheduleId }>({
+      type: "proto.scheduleDelete",
+      scheduleId,
+    });
+    this.schedules = this.schedules.filter((s) => s.id !== scheduleId);
+    this.emit();
+  }
+
+  /**
+   * Run one schedule right now and return the run it produced. The list is
+   * re-fetched afterwards, so `lastRunAt` and the run history are current.
+   */
+  async runScheduleNow(scheduleId: ScheduleId): Promise<ScheduleRun> {
+    const m = await this.conn.request<{
+      type: "proto.scheduleRun";
+      scheduleId: ScheduleId;
+      run: ScheduleRun;
+    }>({ type: "proto.scheduleRunNow", scheduleId });
+    await this.refreshSchedules();
+    return m.run;
+  }
+
   /** Resolve an extension dialog/select request; also dequeues the request by id. */
   respondUi(
     req:
@@ -622,6 +702,7 @@ export class UipiClient {
 
   private async onConnect(): Promise<void> {
     void this.refreshRecentDirs();
+    void this.refreshDefaults();
     // the switch to another session may switch cwd, and with it the skills
     void this.syncSkillsForCwd();
     void this.refreshModels();
@@ -733,6 +814,12 @@ export class UipiClient {
         this.sessions = m.sessions;
         break;
       }
+      case "proto.defaults": {
+        // request and reply share the discriminant: this branch only sees the
+        // pushed copy (a correlated reply is applied by its caller)
+        this.defaults = { cwd: m.cwd, agentDir: m.agentDir };
+        break;
+      }
       case "proto.error": {
         this.error = m.message;
         this.pendingModelById.clear();
@@ -799,6 +886,34 @@ export class UipiClient {
       case "proto.skillGet": {
         // request and reply share the discriminant; the file itself is returned
         // to the caller of `readSkill`, so a broadcast copy carries no state
+        break;
+      }
+      case "proto.scheduleList": {
+        this.schedules = m.schedules;
+        break;
+      }
+      case "proto.scheduleSave": {
+        // the saved schedule carries the server-owned fields, so take the
+        // server's version and replace-or-append it by id
+        const saved = m.schedule;
+        const at = this.schedules.findIndex((s) => s.id === saved.id);
+        this.schedules =
+          at === -1
+            ? [...this.schedules, saved]
+            : this.schedules.map((s, i) => (i === at ? saved : s));
+        break;
+      }
+      case "proto.scheduleDelete": {
+        this.schedules = this.schedules.filter((s) => s.id !== m.scheduleId);
+        break;
+      }
+      case "proto.scheduleRun": {
+        // the run is also returned to the caller of `runScheduleNow`; folding it
+        // into the matching schedule's history keeps a server-pushed copy useful
+        const run = m.run;
+        this.schedules = this.schedules.map((s) =>
+          s.id === m.scheduleId ? { ...s, history: [run, ...s.history] } : s,
+        );
         break;
       }
       case "pi.evt": {

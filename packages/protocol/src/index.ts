@@ -40,6 +40,54 @@ export interface ConfigDoc {
   text: string;
 }
 
+export type ScheduleId = string;
+
+/** A repeatable job: when it fires, a session is created and `prompt` is sent. */
+export interface Schedule {
+  id: ScheduleId;
+  name: string;
+  /** cron expression, 5 fields: minute hour day-of-month month day-of-week */
+  cron: string;
+  /** the prompt text sent to the new session */
+  prompt: string;
+  /** role applied to the session before the prompt (`/role <role>`), if any */
+  role: string | null;
+  /** working directory the session is created in */
+  cwd: string;
+  agentDir?: string;
+  enabled: boolean;
+  /** epoch ms of the next planned run, null when disabled or unparseable */
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  /** most recent first, capped server-side */
+  history: ScheduleRun[];
+}
+
+/** One past trigger of a schedule. */
+export interface ScheduleRun {
+  at: number;
+  /** "ok" when the session was created and the prompt accepted, else an error message */
+  status: "ok" | "error";
+  /** why it failed, when status is "error" */
+  error?: string;
+  /** live session id created by this run, so the UI can offer "open" */
+  sessionId?: string;
+  /** durable session file, when the session got one */
+  sessionFile?: string;
+}
+
+/** What the client may set; the server owns id, nextRunAt, lastRunAt and history. */
+export interface ScheduleInput {
+  id?: ScheduleId;
+  name: string;
+  cron: string;
+  prompt: string;
+  role: string | null;
+  cwd: string;
+  agentDir?: string;
+  enabled: boolean;
+}
+
 // ---------- Client → Server ----------
 
 export type C2S =
@@ -112,9 +160,25 @@ export type C2S =
    * path.
    */
   | { type: "proto.skillGet"; name: string }
+  /**
+   * List schedules. Same discriminant as the reply, like `proto.skills`: the
+   * request carries no payload, the reply carries the list, so the direction is
+   * unambiguous.
+   */
+  | { type: "proto.scheduleList" }
+  /**
+   * Create or overwrite a schedule. Same discriminant as the reply (request
+   * carries one `ScheduleInput`, reply carries the saved `Schedule` with the
+   * server-owned fields filled in), so the direction is unambiguous.
+   */
+  | { type: "proto.scheduleSave"; schedule: ScheduleInput }
+  | { type: "proto.scheduleDelete"; scheduleId: ScheduleId }
+  | { type: "proto.scheduleRunNow"; scheduleId: ScheduleId }
   | { type: "proto.detach"; sessionId: string }
   | { type: "proto.openSession"; sessionFilePath: string }
   | { type: "proto/recentDirs" }
+  // request and reply share the discriminant; only the reply carries the values
+  | { type: "proto.defaults" }
   | { type: "proto/listModels" }
   | { type: "pi.prompt"; sessionId: string; text: string }
   | { type: "pi.steer"; sessionId: string; text: string }
@@ -248,6 +312,8 @@ export type S2C = S2CBase &
     | { type: "proto.error"; message: string; requestId?: string }
     | { type: "proto.sessions"; sessionId?: string; sessions: SessionSummary[] }
     | { type: "proto.recentDirs"; dirs: RecentDir[] }
+    // same discriminant as the request, like `proto.recentDirs`; reply carries the values
+    | { type: "proto.defaults"; cwd: string; agentDir: string }
     | { type: "proto.skills"; skills: SkillInfo[] }
     /**
      * Ids plus mtimes only: the editor needs the list to know what exists and
@@ -283,6 +349,22 @@ export type S2C = S2CBase &
         what: string;
         sessions: string[];
       }
+    /**
+     * Every schedule, server-owned fields (nextRunAt, lastRunAt, history)
+     * included. Same discriminant as the request, like `proto.skills`.
+     */
+    | { type: "proto.scheduleList"; schedules: Schedule[] }
+    /** the schedule as stored after save, so the UI can adopt the server's version */
+    | { type: "proto.scheduleSave"; schedule: Schedule }
+    | { type: "proto.scheduleDelete"; scheduleId: ScheduleId }
+    /**
+     * Which schedule ran, plus the run itself.
+     *
+     * Named `scheduleId`, not `id`: `S2CBase.id` is the transport's correlation
+     * id, and `Conn.request` stamps it onto the outgoing frame, so a payload
+     * field called `id` would be overwritten.
+     */
+    | { type: "proto.scheduleRun"; scheduleId: ScheduleId; run: ScheduleRun }
     | { type: "proto.models"; models: ModelInfo[] }
     | {
         type: "proto.attached";

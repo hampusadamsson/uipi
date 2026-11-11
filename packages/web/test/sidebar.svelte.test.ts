@@ -6,10 +6,15 @@
 // Mount-based, same adapter-driven setup as skills-page.svelte.test.ts: the
 // component reads the shared `ui` singleton directly, and the client calls are
 // spied so no socket is involved.
+//
+// The second block covers the page-route case: `syncUrl()` deliberately leaves
+// `/skills`, `/schedules` and `/settings` alone, so a row click from a page has
+// to navigate to the chat itself (as `startSkill` and the schedules page do).
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import Sidebar from "../src/components/Sidebar.svelte";
-import { ui } from "../src/lib/state.svelte.js";
+import { ui, UiState } from "../src/lib/state.svelte.js";
+import { SCHEDULES_PAGE } from "@uipi/client";
 import type { SessionSummary } from "@uipi/protocol";
 
 function summary(over: Partial<SessionSummary> = {}): SessionSummary {
@@ -69,9 +74,39 @@ async function settle() {
   flushSync();
 }
 
+/**
+ * The client halves a successful attach/open touch: the sidebar's navigation
+ * reads `client.activePath()`, which resolves the *active* attached session. Real
+ * `attachTo`/`openSession` fill these in through `onAttached`; the fakes below do
+ * the same, so the URL assertions see a real session path.
+ */
+type ClientInternals = { attachedSessions: Map<string, unknown>; activeId: string | null };
+const clientInternals = ui.client as unknown as ClientInternals;
+
+/**
+ * Mark `sessionId` as the attached, active session, the way the real
+ * `onAttached` does — `goToSessionsPage()` reads the client's active path, not
+ * `ui.activeId`, so the fake has to land here too.
+ */
+function becameActive(sessionId: string, sessionFile: string): void {
+  clientInternals.attachedSessions.set(sessionId, { sessionId, sessionFile });
+  clientInternals.activeId = sessionId;
+}
+
+/** put the app on the schedules page, URL and `ui.page` in agreement */
+function onSchedulesPage(): void {
+  history.replaceState(null, "", SCHEDULES_PAGE);
+  ui.page = "schedules";
+}
+
 beforeEach(() => {
   ui.sessions = sessions;
   ui.error = null;
+  ui.activeId = null;
+  ui.page = "sessions";
+  history.replaceState(null, "", "/");
+  clientInternals.attachedSessions.clear();
+  clientInternals.activeId = null;
 });
 
 afterEach(() => {
@@ -79,6 +114,8 @@ afterEach(() => {
   component = null;
   host?.remove();
   vi.restoreAllMocks();
+  // the URL is process-global: leave it at "/" for the next test file
+  history.replaceState(null, "", "/");
 });
 
 describe("sidebar session rows", () => {
@@ -145,6 +182,103 @@ describe("sidebar session rows", () => {
 
     row("archived row").click();
     await settle();
+    expect(afterSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sidebar rows on a page route", () => {
+  // A successful switch from /schedules must show the chat: `syncUrl()` leaves
+  // page routes alone by design, so the sidebar navigates explicitly afterwards.
+  it("clicking a live row leaves /schedules for the session's chat", async () => {
+    vi.spyOn(ui, "attach").mockImplementation(async (id: string) => {
+      becameActive(id, "/tmp/live1.jsonl");
+      ui.activeId = id;
+    });
+    onSchedulesPage();
+    render();
+
+    row("live row").click();
+    await settle();
+
+    expect(ui.page).toBe("sessions");
+    expect(location.pathname).toBe(UiState.pathFor("/tmp/live1.jsonl"));
+    expect(ui.error).toBeNull();
+  });
+
+  it("clicking an archived row leaves /schedules for the session's chat", async () => {
+    vi.spyOn(ui, "openSession").mockImplementation(async (file: string) => {
+      becameActive("arch1", file);
+      ui.activeId = "arch1";
+    });
+    onSchedulesPage();
+    render();
+
+    row("archived row").click();
+    await settle();
+
+    expect(ui.page).toBe("sessions");
+    expect(location.pathname).toBe(UiState.pathFor("/tmp/arch1.jsonl"));
+    expect(ui.error).toBeNull();
+  });
+
+  it("a failed attach stays on the page and surfaces the error", async () => {
+    vi.spyOn(ui, "attach").mockRejectedValue(new Error("session gone"));
+    onSchedulesPage();
+    render();
+
+    row("live row").click();
+    await settle();
+
+    expect(ui.page).toBe("schedules");
+    expect(location.pathname).toBe(SCHEDULES_PAGE);
+    expect(ui.error).toContain("could not open session: session gone");
+  });
+
+  it("a failed openSession stays on the page and surfaces the error", async () => {
+    vi.spyOn(ui, "openSession").mockRejectedValue(new Error("server said no"));
+    onSchedulesPage();
+    render();
+
+    row("archived row").click();
+    await settle();
+
+    expect(ui.page).toBe("schedules");
+    expect(location.pathname).toBe(SCHEDULES_PAGE);
+    expect(ui.error).toContain("could not open session: server said no");
+  });
+
+  // From the session view the navigation is a no-op on `page`, and the URL must
+  // land on the newly active session rather than stay on the old one.
+  it("clicking a row from the session view still switches to the new session", async () => {
+    history.replaceState(null, "", UiState.pathFor("/tmp/other.jsonl"));
+    vi.spyOn(ui, "attach").mockImplementation(async (id: string) => {
+      becameActive(id, "/tmp/live1.jsonl");
+      ui.activeId = id;
+    });
+    render();
+
+    row("live row").click();
+    await settle();
+
+    expect(ui.page).toBe("sessions");
+    expect(location.pathname).toBe(UiState.pathFor("/tmp/live1.jsonl"));
+    expect(ui.error).toBeNull();
+  });
+
+  it("closes the drawer only after the switch has landed", async () => {
+    const afterSelect = vi.fn();
+    const attach = vi.spyOn(ui, "attach").mockImplementation(async (id: string) => {
+      becameActive(id, "/tmp/live1.jsonl");
+      ui.activeId = id;
+    });
+    onSchedulesPage();
+    render({ onAfterSelect: afterSelect });
+
+    row("live row").click();
+    await settle();
+
+    expect(ui.page).toBe("sessions");
+    expect(attach).toHaveBeenCalledWith("live1");
     expect(afterSelect).toHaveBeenCalledTimes(1);
   });
 });

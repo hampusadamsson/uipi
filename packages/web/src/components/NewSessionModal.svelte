@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { ui } from "$lib/state.svelte";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
@@ -9,14 +10,47 @@
   let cwd = $state("");
   let agentDir = $state("");
   let busy = $state(false);
-  let open = $derived(ui.wantNew);
+  /**
+   * `open` is real writable state (not a `$derived`): the dialog has to be able
+   * to close itself, and every close route — Esc, overlay click, the header X,
+   * Cancel — must reset `ui.wantNew` too, otherwise the flag stays `true` while
+   * the dialog is visually closed and the next `ui.wantNew = true` is a no-op.
+   */
+  let open = $state(ui.wantNew);
+  /** open-state seen by the prefill effect, so it fires on each opening only */
+  let wasOpen = false;
+
+  // `ui.wantNew` stays the trigger the rest of the app uses (Sidebar/App set it,
+  // create() clears it): pull external changes into `open`, never the reverse.
+  $effect(() => {
+    const want = ui.wantNew;
+    untrack(() => {
+      if (open !== want) open = want;
+    });
+  });
+
+  /** single funnel for a dialog-driven open/close: keep `ui.wantNew` in sync */
+  function setOpen(next: boolean) {
+    open = next;
+    if (ui.wantNew !== next) ui.wantNew = next;
+  }
+
+  // Prefill on every opening, not at creation: a cancel must drop whatever was
+  // typed, and the defaults may only have arrived after the component mounted.
+  $effect(() => {
+    if (open === wasOpen) return;
+    wasOpen = open;
+    if (!open) return;
+    cwd = ui.defaults?.cwd ?? "";
+    agentDir = ui.defaults?.agentDir ?? "";
+  });
 
   async function create() {
     if (!cwd.trim()) return;
     busy = true;
     try {
       await ui.newSession(cwd.trim(), agentDir.trim() || undefined);
-      ui.wantNew = false;
+      setOpen(false);
     } catch {
       /* error surfaced as toast */
     } finally {
@@ -25,7 +59,7 @@
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root {open} onOpenChange={setOpen}>
   <Dialog.Content class="sm:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>New session</Dialog.Title>
@@ -49,12 +83,12 @@
         <Label for="agentdir">Config dir</Label>
         <Input id="agentdir" bind:value={agentDir} placeholder="~/.pi/agent" />
         <p class="text-xs text-muted-foreground">
-          Defaults to ~/.pi/agent (shared with terminal pi).
+          Defaults to the server's --agent-dir / UIPI_AGENT_DIR, else ~/.pi/agent.
         </p>
       </div>
     </div>
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => (ui.wantNew = false)}>Cancel</Button>
+      <Button variant="outline" onclick={() => setOpen(false)}>Cancel</Button>
       <Button onclick={create} disabled={busy}>
         {#if busy}Creating…{:else}Create{/if}
       </Button>

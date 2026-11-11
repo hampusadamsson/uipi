@@ -5,6 +5,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
   import SkillsPage from "./components/SkillsPage.svelte";
+  import SchedulesPage from "./components/SchedulesPage.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import NewSessionModal from "./components/NewSessionModal.svelte";
   import UiEventModal from "./components/UiEventModal.svelte";
@@ -22,12 +23,14 @@
   // routes to, so a row and its route can't disagree
   const pages = [
     { id: "skills", label: "Skills" },
+    { id: "schedules", label: "Schedules" },
     { id: "settings", label: "Settings" },
   ] as const;
 
   // the URL owns the selection: no separate tab state to drift from ui.page
   const activeTab = $derived(ui.page);
   const onSkills = $derived(ui.page === "skills");
+  const onSchedules = $derived(ui.page === "schedules");
   const onSettings = $derived(ui.page === "settings");
   // any page route (not a session view) hides the session-only header controls
   const onPage = $derived(ui.page !== "sessions");
@@ -43,6 +46,16 @@
       // surface once, then clear at the source so a re-render can't re-toast
       ui.clearError();
     }
+  });
+
+  // schedules are server state the tabs don't load for us: fetch them as soon as
+  // the socket is up (which on mount means "on mount"), so the Schedules tab has
+  // the list and its next-run times ready without a manual Refresh
+  $effect(() => {
+    if (!ui.connected) return;
+    void ui.refreshSchedules().catch(() => {
+      /* a failed load is already surfaced by the client's error toast */
+    });
   });
 
   let sidebarOpen = $state(false);
@@ -145,6 +158,8 @@
     </header>
     {#if onSkills}
       <SkillsPage />
+    {:else if onSchedules}
+      <SchedulesPage />
     {:else if onSettings}
       <SettingsPage />
     {:else if attach}

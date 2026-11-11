@@ -1,7 +1,8 @@
 /**
  * URL routing: `/s/<hash8>` for sessions (hash8 is a stable FNV-1a digest of the
  * session file path; the file path is durable across reloads, the live session id
- * is not) plus the fixed non-session pages `/skills` and `/settings`.
+ * is not) plus the fixed non-session pages `/skills`, `/schedules` and
+ * `/settings`.
  */
 
 /** The skills page route. Not a session: it has no hash to resolve. */
@@ -10,17 +11,21 @@ export const SKILLS_PAGE = "/skills";
 /** The config-editing (settings) page route. Not a session either. */
 export const SETTINGS_PAGE = "/settings";
 
+/** The schedule-management page route. Not a session either. */
+export const SCHEDULES_PAGE = "/schedules";
+
 /** A page that is a route of its own rather than a session. */
-export type PageId = "skills" | "settings";
+export type PageId = "skills" | "schedules" | "settings";
 
 /** True for routes that are pages of their own rather than a session. */
 export function isPagePath(p: string): boolean {
-  return p === SKILLS_PAGE || p === SETTINGS_PAGE;
+  return p === SKILLS_PAGE || p === SCHEDULES_PAGE || p === SETTINGS_PAGE;
 }
 
 /** The page a path names, or null when it is not a page route. */
 export function pageIdFromPath(p: string): PageId | null {
   if (p === SKILLS_PAGE) return "skills";
+  if (p === SCHEDULES_PAGE) return "schedules";
   if (p === SETTINGS_PAGE) return "settings";
   return null;
 }
