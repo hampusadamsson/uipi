@@ -80,9 +80,26 @@
   });
 
   /**
+   * The active session, lifted out of the project groups so it stays visible
+   * even when its group is collapsed. Only pinned when it survives the filter:
+   * a row the query hides must not come back as a "pinned" special case.
+   */
+  const pinned = $derived(visible.find((s) => s.sessionId === ui.activeId) ?? null);
+
+  /**
+   * A group's rows without the pinned session. The header keeps its place even
+   * when this list is empty, so a project whose only session is the active one
+   * does not vanish from the sidebar (it renders with count 0).
+   */
+  function groupRows(g: Group): SessionSummary[] {
+    return pinned ? g.sessions.filter((s) => s.sessionId !== pinned.sessionId) : g.sessions;
+  }
+
+  /**
    * Default: the first (most recent) group and the group holding the active
    * session start open, the rest collapsed — a click overrides that for the
-   * page session.
+   * page session. `g.sessions` is the unfiltered membership here: the active
+   * row is pinned above, but its project still opens on its behalf.
    */
   function isOpen(g: Group, index: number): boolean {
     // while searching, every surviving group is open: results hidden behind a
@@ -153,6 +170,53 @@
   }
 </script>
 
+{#snippet sessionRow(s: SessionSummary)}
+  {@const role = sessionRoleText(s)}
+  <button
+    class="w-full min-h-11 text-left rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground {ui.activeId ===
+    s.sessionId
+      ? 'bg-accent'
+      : ''}"
+    data-session={s.sessionId}
+    onclick={() => {
+      if (s.live) select(s.sessionId);
+      else if (s.sessionFile) void openFile(s.sessionFile);
+    }}
+  >
+    <div class="text-sm truncate flex items-center gap-1.5">
+      {#if s.live}
+        {@const st = ui.stateOf(s.sessionId)}
+        <span
+          class="inline-block w-2 h-2 rounded-full shrink-0 {st === 'idle'
+            ? 'bg-green-500'
+            : st === 'thinking'
+              ? 'bg-amber-400 animate-pulse'
+              : st === 'tooling'
+                ? 'bg-blue-400 animate-pulse'
+                : 'bg-violet-400 animate-pulse'}"
+          title={st}
+        ></span>
+      {:else}
+        <span class="inline-block w-2 h-2 rounded-full shrink-0 bg-zinc-600" title="archived"
+        ></span>
+      {/if}
+      {rowLabel(s)}
+    </div>
+    <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
+      <span class="shrink-0">{fmtDate(s.mtime)}</span>
+      <span class="truncate">{s.cwd}</span>
+      {#if role}
+        <span class="shrink-0 text-[10px] opacity-70 inline-flex items-center gap-0.5" title="role"
+          ><TagIcon class="size-2.5" />{role}</span
+        >
+      {/if}
+      {#if ui.contextTokens.get(s.sessionId)}
+        <span class="shrink-0">· {fmtCtx(ui.contextTokens.get(s.sessionId) ?? 0)}</span>
+      {/if}
+    </div>
+  </button>
+{/snippet}
+
 <aside
   class="w-72 max-w-[85vw] h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground"
 >
@@ -173,8 +237,17 @@
     />
   </div>
   <div class="flex-1 overflow-y-auto overscroll-contain p-1">
+    {#if pinned}
+      <div class="mb-1">
+        <div class="text-[10px] text-muted-foreground px-2" data-active-caption>active</div>
+        {#key pinned.sessionId}
+          {@render sessionRow(pinned)}
+        {/key}
+      </div>
+    {/if}
     {#each groups as g, i (g.cwd)}
       {@const open = isOpen(g, i)}
+      {@const groupSessions = groupRows(g)}
       <div class="mb-1">
         <button
           class="w-full text-left rounded-md px-2 py-1.5 flex items-center gap-1 hover:bg-accent hover:text-accent-foreground"
@@ -186,58 +259,12 @@
           <span class="text-[10px] w-2.5 shrink-0 opacity-60">{open ? "▾" : "▸"}</span>
           <span class="text-xs font-medium truncate">{g.label}</span>
           <span class="ml-auto text-[10px] text-muted-foreground shrink-0" title="sessions"
-            >{g.sessions.length}</span
+            >{groupSessions.length}</span
           >
         </button>
         {#if open}
-          {#each g.sessions as s (s.sessionFile)}
-            {@const role = sessionRoleText(s)}
-            <button
-              class="w-full min-h-11 text-left rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground {ui.activeId ===
-              s.sessionId
-                ? 'bg-accent'
-                : ''}"
-              data-session={s.sessionId}
-              onclick={() => {
-                if (s.live) select(s.sessionId);
-                else if (s.sessionFile) void openFile(s.sessionFile);
-              }}
-            >
-              <div class="text-sm truncate flex items-center gap-1.5">
-                {#if s.live}
-                  {@const st = ui.stateOf(s.sessionId)}
-                  <span
-                    class="inline-block w-2 h-2 rounded-full shrink-0 {st === 'idle'
-                      ? 'bg-green-500'
-                      : st === 'thinking'
-                        ? 'bg-amber-400 animate-pulse'
-                        : st === 'tooling'
-                          ? 'bg-blue-400 animate-pulse'
-                          : 'bg-violet-400 animate-pulse'}"
-                    title={st}
-                  ></span>
-                {:else}
-                  <span
-                    class="inline-block w-2 h-2 rounded-full shrink-0 bg-zinc-600"
-                    title="archived"
-                  ></span>
-                {/if}
-                {rowLabel(s)}
-              </div>
-              <div class="text-xs text-muted-foreground truncate flex items-center gap-1">
-                <span class="shrink-0">{fmtDate(s.mtime)}</span>
-                <span class="truncate">{s.cwd}</span>
-                {#if role}
-                  <span
-                    class="shrink-0 text-[10px] opacity-70 inline-flex items-center gap-0.5"
-                    title="role"><TagIcon class="size-2.5" />{role}</span
-                  >
-                {/if}
-                {#if ui.contextTokens.get(s.sessionId)}
-                  <span class="shrink-0">· {fmtCtx(ui.contextTokens.get(s.sessionId) ?? 0)}</span>
-                {/if}
-              </div>
-            </button>
+          {#each groupSessions as s (s.sessionFile)}
+            {@render sessionRow(s)}
           {/each}
         {/if}
       </div>

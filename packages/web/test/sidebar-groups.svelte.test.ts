@@ -220,7 +220,9 @@ describe("sidebar project groups", () => {
     expect(header(OTHER).getAttribute("aria-expanded")).toBe("true");
     expect(header(UIPI).getAttribute("aria-expanded")).toBe("true");
     expect(header("/proj/third").getAttribute("aria-expanded")).toBe("false");
-    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["b1", "a1"]);
+    // the active row is pinned above the groups, so it is not repeated inside
+    // its own (empty) group
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1", "b1"]);
   });
 
   it("still renders exactly one header for a single-project list", () => {
@@ -269,5 +271,166 @@ describe("sidebar project groups", () => {
     expect(attached).toEqual(["live1"]);
     expect(opened).toEqual(["/tmp/arch1.jsonl"]);
     expect(ui.error).toBeNull();
+  });
+});
+
+// The active session is pinned above the project groups so collapsing or
+// scrolling its project can never hide the chat the user is in. It leaves its
+// group (exactly one row in the DOM), and the group header count follows —
+// with the header itself surviving at count 0 so the project does not vanish.
+describe("sidebar pinned active session", () => {
+  /** the pinned caption element, or null when nothing is pinned */
+  function caption(): HTMLElement | null {
+    return host.querySelector<HTMLElement>("[data-active-caption]");
+  }
+
+  /** whether an element precedes the first group header in the DOM */
+  function isAboveHeaders(el: Element): boolean {
+    const first = headers()[0];
+    if (!first) throw new Error("no group headers");
+    return el.compareDocumentPosition(first) === Node.DOCUMENT_POSITION_FOLLOWING;
+  }
+
+  it("renders the active row above the group headers and only once", () => {
+    ui.sessions = [
+      summary({
+        sessionId: "b1",
+        sessionFile: "/tmp/b1.jsonl",
+        displayName: "other row",
+        mtime: 900,
+        cwd: OTHER,
+      }),
+      summary({
+        sessionId: "a1",
+        sessionFile: "/tmp/a1.jsonl",
+        displayName: "uipi active",
+        mtime: 500,
+      }),
+      summary({
+        sessionId: "a2",
+        sessionFile: "/tmp/a2.jsonl",
+        displayName: "uipi idle",
+        mtime: 400,
+      }),
+    ];
+    ui.activeId = "a1";
+    render();
+
+    const pinnedRow = host.querySelector<HTMLButtonElement>('button[data-session="a1"]');
+    expect(pinnedRow).not.toBeNull();
+    expect(isAboveHeaders(pinnedRow as Element)).toBe(true);
+
+    // exactly one row for the active session, and it is not in its group
+    expect(rows().filter((r) => r.getAttribute("data-session") === "a1")).toHaveLength(1);
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1", "b1", "a2"]);
+
+    // the caption explains why it sits apart
+    const cap = caption();
+    expect(cap).not.toBeNull();
+    expect(cap?.textContent?.trim()).toBe("active");
+    expect(cap?.querySelector("[data-session]")).toBeNull();
+  });
+
+  it("keeps the pinned row visible when the active group is collapsed", () => {
+    ui.sessions = [
+      summary({
+        sessionId: "a1",
+        sessionFile: "/tmp/a1.jsonl",
+        displayName: "uipi active",
+        mtime: 500,
+      }),
+      summary({
+        sessionId: "a2",
+        sessionFile: "/tmp/a2.jsonl",
+        displayName: "uipi idle",
+        mtime: 400,
+      }),
+    ];
+    ui.activeId = "a1";
+    render();
+
+    header(UIPI).click();
+    flushSync();
+
+    expect(header(UIPI).getAttribute("aria-expanded")).toBe("false");
+    // the group rows are gone, the pinned row is not
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1"]);
+    expect(caption()).not.toBeNull();
+  });
+
+  it("excludes the pinned row from the group count and keeps a now-empty group", () => {
+    ui.sessions = [
+      summary({
+        sessionId: "a1",
+        sessionFile: "/tmp/a1.jsonl",
+        displayName: "uipi active",
+        mtime: 500,
+      }),
+      summary({
+        sessionId: "b1",
+        sessionFile: "/tmp/b1.jsonl",
+        displayName: "other row",
+        mtime: 400,
+        cwd: OTHER,
+      }),
+    ];
+    ui.activeId = "a1";
+    render();
+
+    header(OTHER).click();
+    flushSync();
+
+    // uipi's only session is pinned, so its header counts 0 but still renders
+    expect(header(UIPI)).not.toBeNull();
+    expect(header(UIPI).textContent?.trim()).toContain("0");
+    expect(header(OTHER).textContent?.trim()).toContain("1");
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1", "b1"]);
+  });
+
+  it("renders no caption and no extra row without an active session", () => {
+    ui.sessions = [
+      summary({
+        sessionId: "a1",
+        sessionFile: "/tmp/a1.jsonl",
+        displayName: "uipi one",
+        mtime: 500,
+      }),
+      summary({
+        sessionId: "b1",
+        sessionFile: "/tmp/b1.jsonl",
+        displayName: "other one",
+        mtime: 400,
+        cwd: OTHER,
+      }),
+    ];
+    render();
+
+    expect(caption()).toBeNull();
+    expect(host.textContent).not.toContain("active");
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1"]);
+  });
+
+  it("does not pin an active id that is not in the list", () => {
+    ui.sessions = [
+      summary({
+        sessionId: "a1",
+        sessionFile: "/tmp/a1.jsonl",
+        displayName: "uipi one",
+        mtime: 500,
+      }),
+    ];
+    ui.activeId = "gone";
+    render();
+
+    expect(caption()).toBeNull();
+    expect(rows().map((r) => r.getAttribute("data-session"))).toEqual(["a1"]);
+  });
+
+  it("renders nothing extra when the list is empty", () => {
+    render();
+
+    expect(caption()).toBeNull();
+    expect(rows()).toHaveLength(0);
+    expect(host.textContent).toContain("no sessions yet");
   });
 });
