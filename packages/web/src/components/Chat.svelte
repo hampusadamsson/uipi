@@ -50,9 +50,15 @@
       <Message entry={e} />
     {/each}
     {#if run !== "idle"}
-      <div class="text-xs text-muted-foreground animate-pulse my-2 flex items-center gap-2">
+      <div class="my-1.5 flex items-center gap-1.5">
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
-        {run === "thinking" ? "thinking…" : run === "tooling" ? "running tools…" : "responding…"}
+        <span class="text-[11px] text-muted-foreground">
+          assistant · {run === "thinking"
+            ? "thinking"
+            : run === "tooling"
+              ? "running tools"
+              : "responding"}
+        </span>
       </div>
     {/if}
   </div>

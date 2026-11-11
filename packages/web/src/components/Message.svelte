@@ -3,8 +3,6 @@
   import { ui } from "$lib/state.svelte";
   import { fmtCtx } from "$lib/format";
   import ToolCall from "./ToolCall.svelte";
-  import { Card, CardContent } from "$lib/components/ui/card/index.js";
-  import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
@@ -56,27 +54,30 @@
   const showMeta = $derived(metaParts.length > 0 && !entry.thinkingActive);
 </script>
 
-<div class="my-2">
+<div class="my-1.5">
   {#if isUser}
     <div class="flex justify-end">
-      <Card class="max-w-[88%] bg-muted border-muted py-1 gap-1">
-        <CardContent class="px-3 text-sm whitespace-pre-wrap break-words">{entry.text}</CardContent>
-      </Card>
+      <!-- Quieter than a card: a plain right-aligned bubble, no ring, no shadow. -->
+      <div
+        class="max-w-[85%] rounded-2xl rounded-br-sm bg-muted px-3 py-2 text-sm whitespace-pre-wrap break-words"
+      >
+        {entry.text}
+      </div>
     </div>
   {:else if isAssistant || entry.toolCalls.length > 0}
-    <div class="max-w-full md:max-w-[90%]">
+    <div class="group max-w-full md:max-w-[min(72ch,100%)]">
       {#if entry.thinking}
         <Collapsible.Root bind:open={thinkOpen} class="mb-1">
           <Collapsible.Trigger
-            class="w-full flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground min-h-8"
+            class="w-full flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground min-h-7"
           >
             <ChevronRightIcon
               class="size-3 shrink-0 transition-transform {thinkOpen ? 'rotate-90' : ''}"
             />
-            <Badge variant="outline" class="font-normal">
-              {entry.thinkingActive ? "thinking…" : "thought for a bit"}
-            </Badge>
-            <span class="truncate flex-1 text-left opacity-60">
+            <span class="shrink-0">
+              {entry.thinkingActive ? "thinking" : "thought for a bit"}
+            </span>
+            <span class="truncate flex-1 text-left opacity-50 text-[11px]">
               {entry.thinking.slice(0, 60)}
             </span>
           </Collapsible.Trigger>
@@ -89,11 +90,20 @@
         <div class="text-xs text-muted-foreground animate-pulse my-1">thinking…</div>
       {/if}
       {#snippet body()}
-        {#if html !== null}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized in $lib/markdown.ts -->
-          <div class="md text-sm break-words">{@html html}</div>
-        {:else if entry.text}
-          <div class="text-sm whitespace-pre-wrap break-words">{entry.text}</div>
+        {#if html !== null || entry.text}
+          <div class="flex items-start">
+            <!-- A one-glyph anchor so a run of assistant text has a left edge. -->
+            <span aria-hidden="true" class="text-primary/40 select-none mr-1.5 inline-block">▍</span
+            >
+            <div class="min-w-0 flex-1">
+              {#if html !== null}
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized in $lib/markdown.ts -->
+                <div class="md text-sm break-words">{@html html}</div>
+              {:else}
+                <div class="text-sm whitespace-pre-wrap break-words">{entry.text}</div>
+              {/if}
+            </div>
+          </div>
         {/if}
       {/snippet}
       {#if isLong && !wasStreaming}
@@ -116,15 +126,21 @@
         <ToolCall {tc} />
       {/each}
       {#if showMeta}
+        <!-- The row itself carries no hover styling (the tests pin that); the
+             wrapper is what fades in on hover, and stays visible on touch. -->
         <div
-          class="mt-1 flex gap-1.5 items-center text-[11px] text-muted-foreground/70 select-none"
-          data-testid="message-meta"
+          class="opacity-0 transition-opacity group-hover:opacity-100 md:opacity-0 max-md:opacity-100"
         >
-          <span class="sr-only">message statistics:</span>
-          {#each metaParts as part, i (part)}
-            {#if i > 0}<span aria-hidden="true">·</span>{/if}
-            <span>{part}</span>
-          {/each}
+          <div
+            class="mt-1 flex gap-1.5 items-center text-[11px] text-muted-foreground/70 select-none"
+            data-testid="message-meta"
+          >
+            <span class="sr-only">message statistics:</span>
+            {#each metaParts as part, i (part)}
+              {#if i > 0}<span aria-hidden="true">·</span>{/if}
+              <span>{part}</span>
+            {/each}
+          </div>
         </div>
       {/if}
     </div>

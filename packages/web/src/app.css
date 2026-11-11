@@ -1,6 +1,28 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+ * JetBrainsMono Nerd Font (patched JetBrains Mono, SIL OFL 1.1 — see
+ * `assets/fonts/OFL.txt`). NerdFonts v3.5.1 ships only ttf/otf in its zips, so
+ * the woff2 files here were converted from the upstream ttf with fontTools.
+ * Vite resolves these relative URLs at build time and emits hashed assets.
+ */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -73,6 +95,9 @@
 }
 
 @theme inline {
+  /* One face for both scales: the UI is a monospace-first Nerd Font surface. */
+  --font-sans: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -116,9 +141,18 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* JetBrains Mono ligatures render `->`/`!=` as single glyphs — unreadable in
+       a UI full of paths and code, so they are off everywhere. */
+    font-variant-ligatures: none;
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.01em;
   }
 }
 
@@ -186,13 +220,13 @@
     @apply mr-1.5 align-middle;
   }
   .md blockquote {
-    @apply border-l-2 border-border pl-3 text-muted-foreground;
+    @apply border-l-2 border-border pl-3 text-muted-foreground rounded-r-md bg-muted/20 py-1 pr-2;
   }
   .md hr {
     @apply my-3 border-border;
   }
   .md a {
-    @apply text-primary underline underline-offset-2 break-words;
+    @apply text-primary underline underline-offset-2 break-words decoration-primary/40 hover:decoration-primary transition-colors;
   }
   .md strong {
     @apply font-semibold;
@@ -202,23 +236,29 @@
   }
   /* inline code — the block form lives inside <pre>, see below */
   .md :not(pre) > code {
-    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words;
+    @apply rounded-[4px] bg-muted/70 px-1 py-[1px] text-[0.8em] break-words;
+    font-family: var(--font-mono);
   }
   .md pre {
-    @apply overflow-x-auto rounded-md border border-border bg-muted/50 px-3 py-2 text-xs;
+    @apply overflow-x-auto rounded-lg border border-border/70 bg-muted/40 p-3 text-[12px] leading-relaxed;
+    tab-size: 2;
   }
   .md pre code {
-    @apply bg-transparent p-0 font-mono whitespace-pre;
+    @apply whitespace-pre;
+    font-family: var(--font-mono);
   }
   .md table {
-    @apply block w-full overflow-x-auto border-collapse text-xs;
+    @apply block w-full overflow-x-auto border-collapse text-[12px];
   }
   .md th,
   .md td {
     @apply border border-border px-2 py-1 text-left align-top;
   }
   .md th {
-    @apply bg-muted/50 font-semibold;
+    @apply bg-muted/60 font-medium py-1.5;
+  }
+  .md tbody tr:nth-child(even) {
+    @apply bg-muted/20;
   }
 
   /*
