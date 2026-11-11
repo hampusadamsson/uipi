@@ -295,3 +295,43 @@ describe("sidebar session filter", () => {
     expect(rowIds()).toEqual(["a1", "a2", "b1"]);
   });
 });
+
+// The pinned active row obeys the filter: a query that excludes the active
+// session takes it (and its caption) off the top like any other row.
+describe("sidebar filter and the pinned active session", () => {
+  function caption(): HTMLElement | null {
+    return host.querySelector<HTMLElement>("[data-active-caption]");
+  }
+
+  it("pins the matching active session above the headers", () => {
+    seed();
+    ui.activeId = "a1";
+    render();
+
+    type("uipi");
+
+    expect(caption()).not.toBeNull();
+    expect(rowIds()[0]).toBe("a1");
+    const first = headers()[0];
+    expect(
+      rowIds().length > 0 &&
+        host
+          .querySelector('button[data-session="a1"]')!
+          .compareDocumentPosition(first as Element) === Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(true);
+    // pinned once, not repeated in the group
+    expect(rowIds().filter((id) => id === "a1")).toHaveLength(1);
+    expect(header(UIPI).textContent).toContain("1");
+  });
+
+  it("hides the pinned row and caption when the query excludes the active session", () => {
+    seed();
+    ui.activeId = "a1";
+    render();
+
+    type("docs");
+
+    expect(rowIds()).toEqual(["a2"]);
+    expect(caption()).toBeNull();
+  });
+});
