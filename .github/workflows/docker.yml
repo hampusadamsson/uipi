@@ -27,7 +27,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Computes the lowercased image name and the tags for this run.
+  # Computes the lowercased image name, the tags, and the pinned pi agent-config
+  # ref. The Dockerfile pins the same PI_CONFIG_REF default, so local builds and
+  # CI bake the identical config snapshot.
   prepare:
     runs-on: ubuntu-latest
     permissions:
@@ -36,6 +38,7 @@ jobs:
       image: ${{ steps.vars.outputs.image }}
       sha_tag: ${{ steps.vars.outputs.sha_tag }}
       extra_tag: ${{ steps.vars.outputs.extra_tag }}
+      pi_config_ref: ${{ steps.vars.outputs.pi_config_ref }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -44,11 +47,13 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF: ${{ github.ref }}
+          PI_CONFIG_REF: 256c9e672286bb1d265a173764bcdebfda75fd1b
         run: |
           set -euo pipefail
           # GHCR requires a lowercase repository path.
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "sha_tag=sha-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pi_config_ref=$PI_CONFIG_REF" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "extra_tag=latest" >> "$GITHUB_OUTPUT"
           else
@@ -84,6 +89,8 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          build-args: |
+            PI_CONFIG_REF=${{ needs.prepare.outputs.pi_config_ref }}
           outputs: type=image,name=${{ needs.prepare.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.title=uipi
@@ -101,6 +108,8 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          build-args: |
+            PI_CONFIG_REF=${{ needs.prepare.outputs.pi_config_ref }}
           push: false
           load: true
           tags: |
