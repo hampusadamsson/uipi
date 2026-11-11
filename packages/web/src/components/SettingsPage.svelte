@@ -5,6 +5,7 @@
   import SkillsSection from "./settings/SkillsSection.svelte";
   import JsonEditor from "./JsonEditor.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
@@ -37,6 +38,17 @@
   let section = $state<SectionId>("general");
   /** General's form/raw swap */
   let generalRaw = $state(false);
+  /**
+   * Sandbox and MCP are raw-JSON-only, so their editors start collapsed: the
+   * document is not what those sections are for, and a wall of JSON is a poor
+   * first impression. The two toggles are deliberately separate state — opening
+   * one section must not open the other.
+   *
+   * General has no such flag: its raw view is chosen explicitly with the
+   * Form/Raw button, and a second collapse trigger there could disagree with it.
+   */
+  let sandboxOpen = $state(false);
+  let mcpOpen = $state(false);
   /** role picked in the Roles section; null falls back to the first name */
   let selectedRole = $state<string | null>(null);
   /** revealed MCP env values, keyed `server/key` */
@@ -459,11 +471,25 @@
     {:else if section === "sandbox"}
       <ConfigSection docId="sandbox">
         {#snippet children(draft: Doc, set: Setter)}
-          <h2 class="text-sm font-semibold">Sandbox</h2>
-          <JsonEditor
-            value={sandboxDoc.text(draft)}
-            onchange={(text) => sandboxDoc.edit(text, draft, set)}
-          />
+          <Collapsible.Root bind:open={sandboxOpen} class="flex flex-col gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-sm font-semibold">Sandbox</h2>
+              <div class="flex-1"></div>
+              <Collapsible.Trigger>
+                {#snippet child({ props })}
+                  <Button {...props} variant="ghost" size="sm" class="text-xs">
+                    {sandboxOpen ? "hide raw JSON" : "show raw JSON"}
+                  </Button>
+                {/snippet}
+              </Collapsible.Trigger>
+            </div>
+            <Collapsible.Content>
+              <JsonEditor
+                value={sandboxDoc.text(draft)}
+                onchange={(text) => sandboxDoc.edit(text, draft, set)}
+              />
+            </Collapsible.Content>
+          </Collapsible.Root>
         {/snippet}
       </ConfigSection>
     {:else if section === "mcp"}
@@ -472,7 +498,25 @@
           {@const servers = obj(draft.mcpServers)}
           {@const serverNames = Object.keys(servers).sort((a, b) => a.localeCompare(b))}
 
-          <h2 class="text-sm font-semibold">MCP</h2>
+          <Collapsible.Root bind:open={mcpOpen} class="flex flex-col gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-sm font-semibold">MCP</h2>
+              <div class="flex-1"></div>
+              <Collapsible.Trigger>
+                {#snippet child({ props })}
+                  <Button {...props} variant="ghost" size="sm" class="text-xs">
+                    {mcpOpen ? "hide raw JSON" : "show raw JSON"}
+                  </Button>
+                {/snippet}
+              </Collapsible.Trigger>
+            </div>
+            <Collapsible.Content>
+              <JsonEditor
+                value={mcpDoc.text(draft)}
+                onchange={(text) => mcpDoc.edit(text, draft, set)}
+              />
+            </Collapsible.Content>
+          </Collapsible.Root>
 
           {#if serverNames.length === 0}
             <p class="text-xs text-muted-foreground">no MCP servers configured</p>
@@ -516,11 +560,6 @@
               {/each}
             </div>
           {/if}
-
-          <JsonEditor
-            value={mcpDoc.text(draft)}
-            onchange={(text) => mcpDoc.edit(text, draft, set)}
-          />
         {/snippet}
       </ConfigSection>
     {:else if section === "skills"}
