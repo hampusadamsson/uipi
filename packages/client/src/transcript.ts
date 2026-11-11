@@ -174,6 +174,11 @@ function roleSwitchEntry(entry: CustomEntryView, index: number): TranscriptEntry
 
 registerCustomEntryRenderer("role-switch", roleSwitchEntry);
 
+function roleOf(m: unknown): string | undefined {
+  if (!m || typeof m !== "object") return undefined;
+  return (m as { role?: string }).role;
+}
+
 function textOf(m: unknown): string {
   const mm = m as { content?: unknown };
   if (!mm) return "";
@@ -186,7 +191,11 @@ function textOf(m: unknown): string {
   return "";
 }
 
-function fromMessage(m: unknown, fallbackId: string): TranscriptEntry {
+function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
+  // pi persists every tool result as its own `role: "toolResult"` message, and
+  // the assistant's tool card already renders that output; projecting the
+  // message as well would show the same text twice.
+  if (roleOf(m) === "toolResult") return null;
   const mm = m as { role?: string; id?: string };
   const entry: TranscriptEntry = {
     kind: "message",
@@ -243,6 +252,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
   switch (ev.type) {
     case "message_start": {
       const msg = fromMessage(ev.message, `msg${out.length}`);
+      if (!msg) break;
       // dedupe: snapshot may already contain this message (e.g. replayed history)
       if (!out.some((e) => e.id === msg.id)) out.push(msg);
       break;
@@ -265,6 +275,7 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
         }
       } else {
         const m = fromMessage(ev.message, `msg${out.length}`);
+        if (!m) break;
         if (m.role === "assistant" && ae.type === "thinking_delta") {
           m.thinking = ae.delta || "";
           m.thinkingActive = true;

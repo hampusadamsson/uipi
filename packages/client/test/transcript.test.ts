@@ -193,6 +193,72 @@ describe("deriveTranscript", () => {
   });
 });
 
+describe("tool result projection", () => {
+  const toolResult = {
+    role: "toolResult",
+    id: "tr1",
+    toolCallId: "tc1",
+    toolName: "ls",
+    content: [{ type: "text", text: "file-a\nfile-b" }],
+    details: {},
+    isError: false,
+    durationMs: 12,
+    timestamp: 1_700_000_000_000,
+  };
+  const calledAssistant = {
+    ...finalA,
+    content: [{ type: "toolCall", id: "tc1", name: "ls", args: { path: "/tmp" } }],
+  };
+  const callEvents = [
+    { type: "tool_execution_start", toolCallId: "tc1", toolName: "ls", args: { path: "/tmp" } },
+    {
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      result: { content: [{ type: "text", text: "file-a\nfile-b" }], isError: false },
+    },
+  ];
+
+  // pi persists every tool result as its own `role: "toolResult"` message, and
+  // the assistant's tool card already renders that output: projecting the
+  // message too would show the same text twice.
+  it("renders a toolResult only once, inside the assistant's tool card", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, calledAssistant, toolResult],
+      events: callEvents,
+    });
+    const withTool = entries.filter((e) => e.toolCalls.length > 0);
+    expect(withTool).toHaveLength(1);
+    expect(withTool[0].role).toBe("assistant");
+    expect(withTool[0].toolCalls.map((tc) => tc.id)).toEqual(["tc1"]);
+    // the output is still there, just not also as a bubble
+    expect(withTool[0].toolCalls[0].output).toContain("file-a\nfile-b");
+    expect(entries.some((e) => e.role === "toolResult")).toBe(false);
+    expect(entries.filter((e) => e.text.includes("file-a"))).toHaveLength(0);
+    // projection only: the surviving entry keeps its untouched raw message
+    expect(withTool[0].raw).toBe(calledAssistant);
+  });
+
+  // Accepted trade-off: an orphan result has no tool card to carry its text,
+  // so it stays out of the transcript rather than rendering as a bubble.
+  it("drops a toolResult that has no matching assistant tool call", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, { ...toolResult, toolCallId: "orphan" }],
+      events: [],
+    });
+    expect(entries.some((e) => e.role === "toolResult")).toBe(false);
+    expect(entries.some((e) => e.text.includes("file-a"))).toBe(false);
+    expect(entries.filter((e) => e.role === "user")).toHaveLength(1);
+  });
+
+  it("drops a live toolResult message_start the same way", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg],
+      events: [{ type: "message_start", message: toolResult }],
+    });
+    expect(entries.some((e) => e.role === "toolResult")).toBe(false);
+  });
+});
+
 describe("custom entry rendering", () => {
   const roleSwitch = (role: string | null) => ({
     type: "custom",
