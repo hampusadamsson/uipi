@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { ToolCallView } from "@uipi/client";
-  import { Badge } from "$lib/components/ui/badge/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
 
@@ -15,11 +14,13 @@
 </script>
 
 <div class="mt-1">
-  <div class="flex gap-2 items-center min-h-10 rounded-md border border-border px-2 py-1 text-xs">
-    <Badge variant="outline" class="{tc.isError ? 'text-destructive' : 'text-emerald-500'} shrink-0"
-      >{tc.name}</Badge
+  <div
+    class="flex gap-2 items-center min-h-7 rounded-md border border-border px-2 py-1 text-[11px]"
+  >
+    <span class="shrink-0 font-mono {tc.isError ? 'text-destructive' : 'text-emerald-500'}"
+      >{tc.name}</span
     >
-    <span class="text-muted-foreground truncate flex-1 text-left">{tc.argsPreview}</span>
+    <span class="text-muted-foreground/60 truncate flex-1 text-left">{tc.argsPreview}</span>
     {#if !tc.done}<span class="text-muted-foreground animate-pulse shrink-0">…</span>{/if}
   </div>
   {#if collapsible}
