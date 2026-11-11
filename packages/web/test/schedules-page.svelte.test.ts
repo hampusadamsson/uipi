@@ -183,7 +183,7 @@ describe("schedules page actions", () => {
     expect(del).toHaveBeenCalledWith("sch-1");
   });
 
-  it("Edit loads the schedule into the form and saves it back by id", async () => {
+  it("the row header loads the schedule into the form and saves it back by id", async () => {
     ui.schedules = [schedule()];
     const save = vi.spyOn(ui, "saveSchedule").mockImplementation(async (i: ScheduleInput) => ({
       ...schedule(),
@@ -192,7 +192,7 @@ describe("schedules page actions", () => {
     }));
     render();
 
-    action(card("sch-1"), "edit").click();
+    action(card("sch-1"), "expand").click();
     flushSync();
     expect(input("schedule-name").value).toBe("nightly");
     expect(input("schedule-cron").value).toBe("0 3 * * *");
@@ -204,6 +204,166 @@ describe("schedules page actions", () => {
 
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0][0]).toMatchObject({ id: "sch-1", name: "renamed" });
+  });
+
+  it("has no Edit button any more", () => {
+    ui.schedules = [schedule()];
+    render();
+
+    expect(host.querySelector('[data-action="expand"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="edit"]')).toBeNull();
+    expect(buttonWithText("New")).not.toBeNull();
+  });
+});
+
+describe("schedules page inline editing", () => {
+  function editable(): HTMLInputElement {
+    return input("schedule-name");
+  }
+
+  it("expands the clicked row into the form, inside that same card", () => {
+    ui.schedules = [schedule(), schedule({ id: "sch-2", name: "morning" })];
+    render();
+
+    action(card("sch-1"), "expand").click();
+    flushSync();
+
+    const row = card("sch-1");
+    expect(row.querySelector("#schedule-name")).not.toBeNull();
+    expect(row.contains(editable())).toBe(true);
+    // the form lives in the row, not in a separate card above the list
+    expect(host.querySelectorAll("#schedule-name")).toHaveLength(1);
+    expect(card("sch-2").querySelector("#schedule-name")).toBeNull();
+    // no extra top-of-page form card: one card per schedule and nothing else
+    expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(2);
+    expect(editable().closest("[data-schedule]")).toBe(row);
+  });
+
+  it("marks the row header as expanded and leaves the other rows collapsed", () => {
+    ui.schedules = [schedule(), schedule({ id: "sch-2", name: "morning" })];
+    render();
+
+    const header = action(card("sch-1"), "expand");
+    // a real button, so Enter/Space come for free
+    expect(header.tagName).toBe("BUTTON");
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    header.click();
+    flushSync();
+
+    expect(action(card("sch-1"), "expand").getAttribute("aria-expanded")).toBe("true");
+    expect(action(card("sch-2"), "expand").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("expanding a second row collapses the first", () => {
+    ui.schedules = [schedule(), schedule({ id: "sch-2", name: "morning" })];
+    render();
+
+    action(card("sch-1"), "expand").click();
+    flushSync();
+    action(card("sch-2"), "expand").click();
+    flushSync();
+
+    expect(card("sch-1").querySelector("#schedule-name")).toBeNull();
+    expect(card("sch-2").querySelector("#schedule-name")).not.toBeNull();
+    expect(host.querySelectorAll("#schedule-name")).toHaveLength(1);
+    // the first row is back to its summary actions
+    expect(card("sch-1").querySelector('button[data-action="toggle"]')).not.toBeNull();
+  });
+
+  it("clicking the expanded row again collapses it", () => {
+    ui.schedules = [schedule()];
+    render();
+
+    action(card("sch-1"), "expand").click();
+    flushSync();
+    action(card("sch-1"), "expand").click();
+    flushSync();
+
+    expect(card("sch-1").querySelector("#schedule-name")).toBeNull();
+  });
+
+  it("saving collapses the row back to the summary view", async () => {
+    ui.schedules = [schedule()];
+    vi.spyOn(ui, "saveSchedule").mockImplementation(async (i: ScheduleInput) => ({
+      ...schedule(),
+      ...i,
+      id: i.id ?? "sch-1",
+    }));
+    render();
+
+    action(card("sch-1"), "expand").click();
+    flushSync();
+    type(editable(), "renamed");
+    buttonWithText("Save").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    const row = card("sch-1");
+    expect(row.querySelector("#schedule-name")).toBeNull();
+    expect(row.querySelector('button[data-action="run"]')).not.toBeNull();
+    expect(row.textContent).toContain("nightly");
+  });
+
+  it("Cancel collapses the row without saving", () => {
+    ui.schedules = [schedule()];
+    const save = vi.spyOn(ui, "saveSchedule");
+    render();
+
+    action(card("sch-1"), "expand").click();
+    flushSync();
+    type(editable(), "renamed");
+    buttonWithText("Cancel").click();
+    flushSync();
+
+    expect(save).not.toHaveBeenCalled();
+    expect(card("sch-1").querySelector("#schedule-name")).toBeNull();
+    expect(card("sch-1").querySelector('button[data-action="toggle"]')).not.toBeNull();
+  });
+
+  it("keeps the summary actions out of the clickable header", () => {
+    ui.schedules = [schedule({ history: [{ at: Date.now(), status: "ok" }] })];
+    render();
+
+    const header = action(card("sch-1"), "expand");
+    expect(header.querySelector("button")).toBeNull();
+    expect(header.contains(action(card("sch-1"), "run"))).toBe(false);
+    expect(header.contains(action(card("sch-1"), "delete"))).toBe(false);
+
+    // the actions still work without opening the editor
+    action(card("sch-1"), "history").click();
+    flushSync();
+    expect(card("sch-1").querySelector("#schedule-name")).toBeNull();
+  });
+
+  it("New still opens the top form and creates a schedule", async () => {
+    ui.schedules = [schedule()];
+    const save = vi.spyOn(ui, "saveSchedule").mockImplementation(async (i: ScheduleInput) => ({
+      ...schedule(),
+      ...i,
+      id: i.id ?? "sch-new",
+    }));
+    render();
+
+    buttonWithText("New").click();
+    flushSync();
+
+    // the new-schedule form is not inside any row card
+    const form = editable();
+    expect(form.closest("[data-schedule]")).toBeNull();
+    type(form, "weekly");
+    type(input("schedule-cron"), "0 6 * * 1");
+    type(input("schedule-prompt"), "do things");
+    type(input("schedule-cwd"), "/proj");
+    buttonWithText("Save").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0][0]).toMatchObject({ name: "weekly", cron: "0 6 * * 1" });
+    expect(save.mock.calls[0][0].id).toBeUndefined();
+    expect(host.querySelector("#schedule-name")).toBeNull();
   });
 });
 
