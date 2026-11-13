@@ -33,8 +33,13 @@
 <Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button {...props} variant="outline" size="sm" class="text-xs font-normal gap-1">
-        {cur?.modelId ?? "model"}
+      <Button
+        {...props}
+        variant="outline"
+        size="sm"
+        class="text-xs font-normal gap-1 max-w-40 sm:max-w-none"
+      >
+        <span class="truncate">{cur?.modelId ?? "model"}</span>
       </Button>
     {/snippet}
   </Popover.Trigger>

@@ -88,70 +88,110 @@
 <div class="flex h-[100dvh] bg-background text-foreground overflow-hidden">
   {#if sidebarOpen}
     <button
-      class="fixed inset-0 bg-black/60 z-30 md:hidden"
+      class="fixed inset-0 bg-black/60 z-30 lg:hidden"
       aria-label="Close menu"
       onclick={closeSidebar}
     ></button>
   {/if}
+  <!-- The drawer stays a drawer until lg: at md a permanent 288px sidebar left
+       the content only 480px, narrower than a phone, so the header and the forms
+       were worse off at 768px than at 640px. -->
   <div
-    class="fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:relative md:translate-x-0
+    class="fixed inset-y-0 left-0 z-40 transition-transform duration-200 lg:relative lg:translate-x-0
            {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}"
   >
     <Sidebar onAfterSelect={closeSidebar} />
   </div>
 
-  <main class="flex-1 flex flex-col min-w-0">
-    <header class="flex items-center gap-2 border-b border-border px-3 md:px-4 py-2">
+  <main class="flex flex-1 flex-col min-w-0">
+    <!-- Wraps instead of scrolling as a whole: below lg the tabs get the first
+         line and the session controls get the second; from lg up it is one row.
+         Inside each line the *strips* scroll, and Stop always stays outside the
+         picker scroller — a control you must scroll sideways to find is a bug. -->
+    <header
+      class="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border px-3 md:px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]"
+    >
       <Button
         variant="ghost"
         size="icon-sm"
-        class="md:hidden shrink-0"
+        class="lg:hidden shrink-0"
         aria-label="Menu"
         onclick={toggleSidebar}><MenuIcon /></Button
       >
-      <Tabs.Root value={activeTab} onValueChange={selectTab} class="shrink-0">
-        <Tabs.List class="h-7 text-xs">
-          <Tabs.Trigger value="sessions" class="text-xs px-2">Sessions</Tabs.Trigger>
-          {#each pages as p (p.id)}
-            <Tabs.Trigger value={p.id} class="text-xs px-2">{p.label}</Tabs.Trigger>
-          {/each}
-        </Tabs.List>
-      </Tabs.Root>
+      <!-- `basis-0` here is load-bearing: with an `auto` basis a scroll strip's
+           min-content width (the full row of tabs inside it) sets the page's
+           min-content width, and a phone browser then widens the layout viewport
+           past the device — the whole page scrolls sideways. A zero basis lets
+           the strip shrink and scroll inside its own box. -->
+      <div
+        class="min-w-0 basis-0 grow shrink overflow-x-auto overscroll-x-contain lg:grow-0 lg:shrink-0 lg:basis-auto lg:overflow-visible"
+      >
+        <Tabs.Root value={activeTab} onValueChange={selectTab}>
+          <Tabs.List class="h-8 text-xs md:h-7">
+            <Tabs.Trigger value="sessions" class="text-xs px-2.5">Sessions</Tabs.Trigger>
+            {#each pages as p (p.id)}
+              <Tabs.Trigger value={p.id} class="text-xs px-2.5">{p.label}</Tabs.Trigger>
+            {/each}
+          </Tabs.List>
+        </Tabs.Root>
+      </div>
       {#if attach && !onPage}
-        <span class="text-sm font-semibold truncate hidden sm:inline">{attach.cwd}</span>
-        <span class="text-xs text-muted-foreground truncate sm:hidden">
-          {attach.cwd.split("/").pop()}
-        </span>
-        <Badge
-          variant="secondary"
-          class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
-          >{runLabel[run]}</Badge
-        >
-        {#if sessionName}
-          <span class="text-xs font-medium truncate max-w-40 md:max-w-64 shrink" title={sessionName}
-            >{sessionName}</span
+        <!-- The session's identity, from lg up: the cwd always, the rest once
+             there is room. It is `flex-1` (a zero basis) for two reasons — it
+             absorbs the leftover width so the controls sit right-aligned, and in
+             a wrapping flex container a content-sized item makes the *line* wrap
+             rather than shrink, which pushed the controls to a second row at
+             1280px. `overflow-hidden` stops a long cwd forcing the row wider. -->
+        <div class="hidden min-w-0 flex-1 overflow-hidden items-center gap-2 lg:flex">
+          <span class="text-sm font-semibold truncate min-w-0" title={attach.cwd}>
+            {attach.cwd.split("/").pop() || attach.cwd}
+          </span>
+          <span class="text-xs text-muted-foreground truncate min-w-0 hidden xl:inline">
+            {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
+          </span>
+          {#if sessionName}
+            <span
+              class="text-xs font-medium truncate min-w-0 max-w-40 shrink hidden xl:inline"
+              title={sessionName}>{sessionName}</span
+            >
+          {/if}
+          {#if ui.contextTokens.get(attach.sessionId)}
+            <Badge variant="outline" class="text-[10px] shrink-0 font-normal hidden xl:inline-flex">
+              {fmtCtx(ui.contextTokens.get(attach.sessionId) ?? 0)}
+            </Badge>
+          {/if}
+        </div>
+        <!-- The control group: its own full-width line below lg, content-sized
+             from lg up. -->
+        <div class="flex w-full min-w-0 items-center gap-2 lg:w-auto lg:shrink-0">
+          <Badge
+            variant="secondary"
+            class="text-[10px] shrink-0 {run === 'idle' ? '' : 'animate-pulse'}"
+            >{runLabel[run]}</Badge
           >
-        {/if}
-        <span class="text-xs text-muted-foreground hidden lg:inline">
-          {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
-        </span>
-        {#if ui.contextTokens.get(attach.sessionId)}
-          <Badge variant="outline" class="text-[10px] shrink-0 font-normal">
-            {fmtCtx(ui.contextTokens.get(attach.sessionId) ?? 0)}
-          </Badge>
-        {/if}
-        <div class="flex-1"></div>
-        <RolePicker sessionId={attach.sessionId} />
-        <ThinkingPicker sessionId={attach.sessionId} />
-        <ModelPicker sessionId={attach.sessionId} />
-        {#if run !== "idle"}
-          <Button
-            variant="destructive"
-            size="sm"
-            class="text-xs shrink-0"
-            onclick={() => ui.abort(attach.sessionId)}>Stop</Button
+          <!-- Scrolls at every width rather than going `overflow-visible` at
+               lg: a wide session's chips can still overrun a 1024px header, and
+               restoring visible overflow there clipped the pickers away. It is
+               content-sized (`basis-auto`) so it only scrolls when the chips
+               really have run out of room. Stop stays outside this box, so it
+               is always reachable. -->
+          <div
+            class="flex min-w-0 shrink basis-auto items-center gap-1.5 overflow-x-auto overscroll-x-contain"
+            aria-label="Session controls"
           >
-        {/if}
+            <RolePicker sessionId={attach.sessionId} />
+            <ThinkingPicker sessionId={attach.sessionId} />
+            <ModelPicker sessionId={attach.sessionId} />
+          </div>
+          {#if run !== "idle"}
+            <Button
+              variant="destructive"
+              size="sm"
+              class="text-xs shrink-0"
+              onclick={() => ui.abort(attach.sessionId)}>Stop</Button
+            >
+          {/if}
+        </div>
       {:else}
         <div class="flex-1"></div>
       {/if}

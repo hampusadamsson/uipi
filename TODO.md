@@ -107,6 +107,12 @@ and pays for it with an id allowlist and an mtime check.
   `SettingsPage` with a left sub-nav: General, Roles, Skills, Sandbox, MCP,
   Advanced. The tab comes from the same `pages` registry in `App.svelte` the
   skills page uses, so adding a page stays a data row plus one branch.
+- **One list, two layouts.** Below `md` the 144px section rail would be half a
+  phone, so the same six sections become a `Select` picker above the pane; the
+  rail stays in the DOM (`hidden` until `md`) because it is the page's only nav
+  landmark and the existing tests drive its buttons. This is one example of the
+  rule in _Mobile_ below: a narrow screen gets a strip or a picker, never a
+  fixed side rail on a form.
 - **Deliberate exception to "pi defines it".** pi exports no roles/sandbox/mcp
   API — zero hits for those filenames in pi's `dist`, and `roles.json` is read by
   the user's own extension — so uipi **does** edit those files. But only against
@@ -209,6 +215,57 @@ interface ConfigDoc {
   that covers them.
 - No project-skill editing: project scope is listed, never written.
 - No rename. A rename is delete + create, done by hand.
+
+## Decided — mobile layout
+
+**Invariant:** a narrow screen is not a squeezed desktop. Nothing scrolls
+sideways, no control is unreachable, and every list keeps its state while it
+changes shape — one `section` / `selectedRole` / `selectedName` variable, two
+layouts.
+
+- **No fixed side rail on a form.** A 144–160px rail beside a form is fine at
+  `lg`+ and fatal on a phone: at `md` the Roles fields measured 60px wide. The
+  section rail, the roles list and the skills list all become a horizontal
+  scroll strip above their form below `lg`, and a column at `lg`. The strip
+  scroller declares `max-lg:flex-row max-lg:overflow-x-auto` and every row
+  `max-lg:min-h-11`.
+- **The header wraps; the strips inside it scroll.** Below `lg` the tabs take
+  the first line and the session controls take the second; from `lg` up it is
+  one row. A single row cannot hold tabs + identity + pickers + Stop on a phone,
+  and scrolling the _header_ to reach them hides controls — so the header wraps
+  and only the individual strips scroll. Stop and the run-state badge sit
+  _outside_ the picker scroller, because a control you must scroll sideways to
+  find is broken.
+- **`basis-0` on the tab strip is load-bearing.** With an `auto` basis the
+  strip's min-content width (the full row of tabs inside it) becomes the page's
+  min-content width, and a mobile browser then widens the layout viewport past
+  the device — measured: a 320px phone reporting `innerWidth` 371 and scrolling
+  the whole app sideways. The picker strip is the opposite: content-sized
+  (`basis-auto`) with the identity chips on a zero basis, so the pickers never
+  scroll on a screen that has room for them. Those chips also carry
+  `overflow-hidden` — in a wrapping flex container a content-sized item makes
+  the _line_ wrap rather than shrink, which pushed the controls to a second row
+  at 1280px.
+- **Touch, not pointer.** `@media (pointer: coarse)` sets a 44px floor on every
+  control and 16px text on every field. 16px is the only thing that stops iOS
+  zooming the page on focus and never zooming back; the floor is applied to
+  `button` elements rather than `[data-slot="button"]`, because a picker's
+  `Button` is a bits-ui trigger and carries `popover-trigger` as its slot.
+- **Pinch-zoom stays.** `maximum-scale=1.0` was removed from the viewport meta;
+  suppressing zoom-on-focus via that tag is not an accessibility trade worth
+  making. Safe-area insets pad the header, the drawer and the input box.
+- **Density is a desktop affair.** The 21–28px controls at `md`+ are deliberate
+  and untested for touch; the unit tests therefore pin the _classes_ and leave
+  the phone measurements to the browser checks below.
+
+Shipped with it: `settings-mobile-nav.svelte.test.ts` (picker ↔ rail drive one
+`section`, all six entries offered, scroll reset) and
+`mobile-layout.svelte.test.ts` (rail-becomes-strip in settings/roles/skills,
+Stop outside the picker scroller, the header's wrap rule, `basis-0`/`basis-auto`
+pins). Verified in Chromium at 320/360/390/414/480/640/768/1024/1280/1440/1600px
+across settings × 4 sections, skills, schedules and chat: no document overflow
+at any width, no control under 40px on a coarse pointer, and the pickers fit
+without scrolling from 640px up.
 
 ## Decided — per-message usage meta (v1.4)
 

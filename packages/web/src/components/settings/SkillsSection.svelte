@@ -248,8 +248,10 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 gap-3">
-  <div class="flex w-40 shrink-0 min-h-0 flex-col gap-2 border-r border-border pr-2">
+<!-- Below md the page pane is the scroller (one thumb-scroll, no nested
+     scroll traps); from md up each column scrolls on its own. -->
+<div class="flex min-h-0 flex-col gap-3 lg:h-full lg:flex-row">
+  <div class="flex min-h-0 shrink-0 flex-col gap-2 lg:w-40 lg:border-r lg:border-border lg:pr-2">
     <Button
       variant="outline"
       size="sm"
@@ -261,16 +263,22 @@
       New skill
     </Button>
 
-    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-0.5">
+    <!-- lg: a vertical rail beside the form. Below lg it would be half the
+         width, so the same rows become one scroll strip above the form. -->
+    <div
+      class="flex flex-col gap-0.5 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:pb-1"
+      aria-label="Skills"
+      role="group"
+    >
       {#if sorted.length === 0}
-        <p class="text-xs text-muted-foreground">no skills found</p>
+        <p class="text-xs text-muted-foreground whitespace-nowrap">no skills found</p>
       {/if}
       {#each sorted as skill (skill.name)}
         <button
           type="button"
           data-skill={skill.name}
           aria-current={!draftMode && selectedName === skill.name ? "true" : undefined}
-          class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 {!draftMode &&
+          class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 max-lg:shrink-0 max-lg:min-h-11 max-lg:border max-lg:border-border {!draftMode &&
           selectedName === skill.name
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground'}"
@@ -287,7 +295,9 @@
     </div>
   </div>
 
-  <div class="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-3">
+  <div
+    class="flex min-w-0 flex-col gap-3 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain"
+  >
     <ReloadStrip what="skills" open={reloadOpen} ondone={() => (reloadOpen = false)} />
 
     {#if !hasSelection}

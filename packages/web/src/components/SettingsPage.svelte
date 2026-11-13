@@ -10,6 +10,7 @@
   import { Label } from "$lib/components/ui/label/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
+  import * as Select from "$lib/components/ui/select/index.js";
   import SlidersHorizontalIcon from "@lucide/svelte/icons/sliders-horizontal";
   import UsersIcon from "@lucide/svelte/icons/users";
   import BoxIcon from "@lucide/svelte/icons/box";
@@ -36,6 +37,18 @@
   ];
 
   let section = $state<SectionId>("general");
+  /** the compact mobile picker resolves its trigger label from these, not from mounted items */
+  const navItems = nav.map(({ id, label }) => ({ value: id, label }));
+  /**
+   * The scrolling pane, so a section switch starts at its top. Jumping from a
+   * long section (roles) to a short one (advanced) would otherwise land mid-way
+   * down the new section on a phone, where the pane is the whole viewport.
+   */
+  let pane = $state<HTMLElement | null>(null);
+  $effect(() => {
+    void section;
+    if (pane) pane.scrollTop = 0;
+  });
   /** General's form/raw swap */
   let generalRaw = $state(false);
   /**
@@ -150,9 +163,32 @@
   }
 </script>
 
-<div class="flex-1 flex min-h-0">
+<div class="flex flex-col md:flex-row flex-1 min-h-0">
+  <!-- Below md the 144px rail is too much of the width, so the sections move into
+       a compact picker above the content. The wrapper keeps the nav landmark
+       (it is a `role="navigation"` div, not a second `<nav>`), because below md
+       the rail is `hidden` and would otherwise leave the page without one. -->
+  <div
+    data-slot="settings-sections-mobile"
+    class="md:hidden shrink-0 p-2 border-b border-border"
+    role="navigation"
+    aria-label="Settings sections"
+  >
+    <Select.Root type="single" bind:value={section} items={navItems}>
+      <Select.Trigger class="w-full" aria-label="Settings section">
+        <Select.Value />
+      </Select.Trigger>
+      <Select.Content>
+        {#each nav as item (item.id)}
+          <Select.Item value={item.id} label={item.label} />
+        {/each}
+      </Select.Content>
+    </Select.Root>
+  </div>
+
   <nav
-    class="w-36 shrink-0 border-r border-border overflow-y-auto overscroll-contain p-2 flex flex-col gap-0.5"
+    aria-label="Settings sections"
+    class="hidden md:flex w-36 shrink-0 border-r border-border overflow-y-auto overscroll-contain p-2 flex-col gap-0.5"
   >
     {#each nav as item (item.id)}
       <button
@@ -170,7 +206,10 @@
     {/each}
   </nav>
 
-  <div class="flex-1 min-w-0 overflow-y-auto overscroll-contain p-3 md:p-4">
+  <div
+    bind:this={pane}
+    class="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-3 md:p-4"
+  >
     {#if section === "general"}
       <ConfigSection docId="settings">
         {#snippet children(draft: Doc, set: Setter)}
@@ -299,12 +338,20 @@
           {#if names.length === 0}
             <p class="text-xs text-muted-foreground">no roles defined</p>
           {:else}
-            <div class="flex flex-col gap-3 md:flex-row md:items-start">
-              <div class="md:w-40 shrink-0 flex flex-col gap-0.5">
+            <!-- A 160px rail plus a two-column form does not fit until lg: at md
+                 the fields ended up 60px wide. Below lg the rows are a horizontal
+                 scroll strip above the form; from lg up they are the rail. One
+                 list, two layouts, one selection state. -->
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
+              <div
+                class="shrink-0 flex flex-col gap-0.5 max-lg:-mx-3 max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:border-b max-lg:border-border max-lg:px-3 max-lg:pb-2 lg:w-40"
+                role="group"
+                aria-label="Roles"
+              >
                 {#each names as n (n)}
                   <button
                     type="button"
-                    class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 {n ===
+                    class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 max-lg:shrink-0 max-lg:min-h-11 max-lg:border max-lg:border-border {n ===
                     name
                       ? 'bg-accent text-accent-foreground font-medium'
                       : 'text-muted-foreground'}"

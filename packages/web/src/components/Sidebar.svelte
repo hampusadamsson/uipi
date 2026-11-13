@@ -218,7 +218,7 @@
 {/snippet}
 
 <aside
-  class="w-72 max-w-[85vw] h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground"
+  class="w-72 max-w-[85vw] h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
 >
   <div class="px-3 py-2 flex items-center justify-between">
     <span class="font-semibold text-sm text-primary">uipi</span>

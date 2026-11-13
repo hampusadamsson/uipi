@@ -54,7 +54,7 @@
       {#snippet child({ props })}
         <Button {...props} variant="outline" size="sm" class="text-xs font-normal shrink-0">
           <TagIcon class="size-3.5" />
-          {cur}
+          <span class="max-w-24 truncate sm:max-w-none">{cur}</span>
         </Button>
       {/snippet}
     </Popover.Trigger>
