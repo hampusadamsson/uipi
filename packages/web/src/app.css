@@ -157,6 +157,56 @@
 }
 
 /*
+ * Touch devices. These rules are deliberately unlayered: Tailwind's utilities
+ * live in `@layer utilities`, and unlayered CSS outranks every layer regardless
+ * of specificity, so density utilities such as `text-xs` on a form field or a
+ * `h-7` button cannot undo them.
+ */
+@media (pointer: coarse) {
+  /* A finger is ~9mm, not a mouse pointer: every clickable control gets a 44px
+     row. Element selectors, not `[data-slot="button"]`, because a picker
+     Button is a bits-ui trigger and carries that primitive's `data-slot`
+     (`popover-trigger`, `select-trigger`) instead of the button's. */
+  button,
+  a[data-slot="button"],
+  [data-slot="select-item"],
+  [data-slot="command-item"],
+  [role="option"],
+  [role="menuitem"] {
+    min-height: 2.75rem;
+  }
+  /* Icon-only controls are square, so the floor has to apply on both axes. */
+  [data-size^="icon"] {
+    min-width: 2.75rem;
+  }
+  /* The tab strip is a fixed-height (h-8) segmented control; a taller trigger
+     inside it would overflow, so the list grows with its triggers instead. */
+  [data-slot="tabs-list"] {
+    height: auto;
+    min-height: 2.75rem;
+  }
+  /* iOS zooms the whole page when a focused field's text is under 16px, and
+     never zooms back out. 16px is the only way to keep the layout stable while
+     typing — the trade is a slightly larger field on a phone, which is wanted.
+     The min-height is what keeps a denser field (the sidebar filter is `h-7`)
+     from clipping the larger text. */
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select,
+  [data-slot="select-trigger"] {
+    font-size: 16px;
+    min-height: 2.75rem;
+  }
+  /* A dialog taller than the viewport must scroll inside itself, not push its
+     own header and footer buttons off screen. */
+  [data-slot="dialog-content"] {
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/*
  * Markdown rendered in chat bubbles (`$lib/markdown.ts` emits plain HTML, so
  * this is the only place its look is decided). Element selectors are used on
  * purpose: the HTML comes from a parser, not from Svelte templates, so utility

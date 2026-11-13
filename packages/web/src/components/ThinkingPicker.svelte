@@ -26,9 +26,16 @@
 <Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button {...props} variant="outline" size="sm" class="text-xs font-normal">
+      <Button
+        {...props}
+        variant="outline"
+        size="sm"
+        class="text-xs font-normal shrink-0"
+        aria-label="Thinking level: {cur || 'default'}"
+      >
         <BrainIcon class="size-3.5" />
-        {cur || "thinking"}
+        <!-- the brain already says "thinking"; below sm the word only costs width -->
+        <span class="hidden sm:inline">{cur || "thinking"}</span>
       </Button>
     {/snippet}
   </Popover.Trigger>

@@ -528,7 +528,7 @@
                   <p class="text-xs text-muted-foreground">no runs yet</p>
                 {:else}
                   {#each runs as run, i (i)}
-                    <div class="flex items-start gap-2 text-[11px] min-w-0">
+                    <div class="flex items-start gap-2 text-[11px] min-w-0 flex-wrap">
                       <span class="shrink-0 text-muted-foreground" title={fmtRelative(run.at)}>
                         {fmtAbsolute(run.at)}
                       </span>
