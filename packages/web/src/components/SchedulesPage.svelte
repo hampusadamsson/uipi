@@ -374,9 +374,11 @@
   </div>
 {/snippet}
 
-<div class="flex-1 overflow-y-auto overscroll-contain p-3 md:p-4">
+<div class="flex-1 overflow-y-auto overscroll-contain p-3 lg:p-4">
   <div class="flex items-center gap-2 flex-wrap">
-    <h1 class="text-sm font-semibold">Schedules</h1>
+    <!-- Below lg the page is a sheet whose header already names it, so the
+       in-page heading is redundant; the count and the actions stay. -->
+    <h1 class="max-lg:sr-only text-sm font-semibold">Schedules</h1>
     <span class="text-xs text-muted-foreground shrink-0">
       {ui.schedules.length}
       {ui.schedules.length === 1 ? "schedule" : "schedules"}
@@ -564,7 +566,7 @@
 </div>
 
 <Dialog.Root open={deleting !== null} onOpenChange={(o) => !o && (deleting = null)}>
-  <Dialog.Content class="sm:max-w-[32rem]">
+  <Dialog.Content class="lg:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>Delete schedule {deleting?.name ?? ""}?</Dialog.Title>
       <Dialog.Description class="text-xs">

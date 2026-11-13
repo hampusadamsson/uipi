@@ -52,7 +52,7 @@
     if (!o) cancel();
   }}
 >
-  <Dialog.Content class="sm:max-w-[28rem]">
+  <Dialog.Content class="lg:max-w-[28rem]">
     {#if current}
       {#if isSelect(current)}
         <Dialog.Header>

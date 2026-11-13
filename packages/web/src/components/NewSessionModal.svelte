@@ -60,7 +60,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={setOpen}>
-  <Dialog.Content class="sm:max-w-[32rem]">
+  <Dialog.Content class="lg:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>New session</Dialog.Title>
       <Dialog.Description

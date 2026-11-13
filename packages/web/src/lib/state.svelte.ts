@@ -532,9 +532,17 @@ export class UiState {
     return sessions;
   }
 
-  /** Leave the skills page for the active session (or the default view). */
-  goToSessionsPage(): void {
-    history.pushState(null, "", this.client.activePath());
+  /**
+   * Leave a page for the active session (or the default view).
+   *
+   * `replace` swaps the current history entry instead of pushing a new one: the
+   * mobile page sheets close by *navigating*, and closing a sheet must not leave
+   * a second entry for the back gesture to land on (which would reopen the page
+   * the user just dismissed).
+   */
+  goToSessionsPage(replace = false): void {
+    if (replace) history.replaceState(null, "", this.client.activePath());
+    else history.pushState(null, "", this.client.activePath());
     this.page = "sessions";
   }
 

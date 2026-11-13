@@ -195,6 +195,12 @@
     height: auto;
     min-height: 2.75rem;
   }
+  /* Sheet rows are the phone's primary navigation: a full-width row is a	bigger,
+     easier target than the 44px floor, and the row already has the padding to
+     spare. */
+  [data-slot="sheet-content"] [data-view] {
+    min-height: 3.5rem;
+  }
   /* iOS zooms the whole page when a focused field's text is under 16px, and
      never zooms back out. 16px is the only way to keep the layout stable while
      typing — the trade is a slightly larger field on a phone, which is wanted.
@@ -216,9 +222,14 @@
     font-size: 16px;
   }
   /* A dialog taller than the viewport must scroll inside itself, not push its
-     own header and footer buttons off screen. */
-  [data-slot="dialog-content"] {
+     own header and footer buttons off screen. Both dialog flavours on a phone
+     are bottom sheets now (see dialog-content.svelte); the sheet primitive
+     sizes itself, so it only needs the hard ceiling here. */
+  [data-slot="dialog-content"],
+  [data-slot="sheet-content"] {
     max-height: calc(100dvh - 2rem);
+  }
+  [data-slot="dialog-content"] {
     overflow-y: auto;
     overscroll-behavior: contain;
   }

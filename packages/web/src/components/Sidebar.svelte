@@ -6,9 +6,10 @@
   import { Separator } from "$lib/components/ui/separator/index.js";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import TagIcon from "@lucide/svelte/icons/tag";
+  import XIcon from "@lucide/svelte/icons/x";
   import type { SessionSummary } from "@uipi/protocol";
 
-  let { onAfterSelect }: { onAfterSelect?: () => void } = $props();
+  let { onAfterSelect, onClose }: { onAfterSelect?: () => void; onClose?: () => void } = $props();
 
   /** one project's rows: the server's order (newest first) is preserved */
   type Group = { cwd: string; label: string; sessions: SessionSummary[]; mtime: number };
@@ -149,6 +150,13 @@
     onAfterSelect?.();
   }
 
+  function newSession(): void {
+    // the drawer must get out of the way: the dialog opens over it, and the
+    // last thing a phone needs is two stacked close buttons
+    onClose?.();
+    ui.wantNew = true;
+  }
+
   function fmtDate(mtime: number): string {
     const d = new Date(mtime);
     const now = new Date();
@@ -218,11 +226,23 @@
 {/snippet}
 
 <aside
-  class="w-72 max-w-[85vw] h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+  class="w-full lg:w-72 h-full border-r border-border flex flex-col bg-sidebar text-sidebar-foreground pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
 >
-  <div class="px-3 py-2 flex items-center justify-between">
+  <div class="px-3 py-2 flex items-center gap-2">
     <span class="font-semibold text-sm text-primary">uipi</span>
-    <Button size="sm" onclick={() => (ui.wantNew = true)}><PlusIcon /> New</Button>
+    <div class="flex-1"></div>
+    <Button size="sm" class="max-lg:min-h-9" onclick={newSession}><PlusIcon /> New</Button>
+    {#if onClose}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="lg:hidden"
+        aria-label="Close sessions"
+        onclick={onClose}
+      >
+        <XIcon />
+      </Button>
+    {/if}
   </div>
   <Separator />
   {#if !ui.connected}
@@ -231,7 +251,7 @@
   <div class="px-2 pb-1">
     <Input
       bind:value={query}
-      class="h-7 text-xs"
+      class="h-7 text-xs max-lg:h-11"
       placeholder="Filter sessions…"
       aria-label="Filter sessions"
     />

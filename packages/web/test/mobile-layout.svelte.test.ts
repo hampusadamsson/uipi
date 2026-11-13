@@ -42,8 +42,20 @@ function render(page: typeof SettingsPage | typeof SkillsSection): void {
   flushSync();
 }
 
-/** Mount the real app on `/` with the socket stubbed out. */
+/**
+ * happy-dom's default viewport is 1024x768, i.e. exactly this app's `lg`
+ * breakpoint — on the desktop side. A phone test has to say so, and the app
+ * reads it through `MediaQuery`, which listens for `resize`.
+ */
+function setViewport(width: number): void {
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+  window.dispatchEvent(new Event("resize"));
+  flushSync();
+}
+
+/** Mount the real app on `/` with the socket stubbed out, at phone width. */
 function renderApp(path = "/"): void {
+  setViewport(390);
   history.replaceState(null, "", path);
   vi.spyOn(ui.client, "attach").mockImplementation(() => {});
   ui.init();
@@ -122,7 +134,7 @@ describe("settings page on a phone", () => {
     // the 144px rail would sit beside the form and squeeze it
     const shell = host.firstElementChild!;
     expect(shell.className).toContain("flex-col");
-    expect(shell.className).toContain("md:flex-row");
+    expect(shell.className).toContain("lg:flex-row");
 
     // exactly one scroller, and it is the content pane
     const scroller = pane();
@@ -215,7 +227,7 @@ describe("skills section on a phone", () => {
   });
 });
 
-describe("app header on a phone", () => {
+describe("app chrome on a phone", () => {
   function header(): HTMLElement {
     return host.querySelector("header")!;
   }
@@ -225,26 +237,36 @@ describe("app header on a phone", () => {
     return header().querySelector<HTMLElement>('[aria-label="Session controls"]')!;
   }
 
-  it("scrolls the tabs and the pickers inside their own strips, not the page", () => {
-    renderApp("/");
-
-    // the tab strip is a scroller below lg and shrinks to content from lg up
-    const tabs = header().firstElementChild!.nextElementSibling as HTMLElement;
-    expect(tabs.className).toContain("overflow-x-auto");
-    expect(tabs.className).toContain("min-w-0");
-    // the load-bearing bit: a zero basis stops the strip's min-content width
-    // from widening the layout viewport (the whole page then scrolls sideways)
-    expect(tabs.className).toContain("basis-0");
-    expect(tabs.className).toContain("lg:basis-auto");
-  });
-
-  it("keeps Stop outside the picker scroller so it cannot scroll out of reach", () => {
+  /** Attach one session and let the adapter mirror it, as a real attach would. */
+  function attachOne(over: Partial<AttachedSession> = {}): void {
     (
       ui.client as unknown as { attachedSessions: Map<string, AttachedSession> }
-    ).attachedSessions.set("s1", attached({ isStreaming: true }));
+    ).attachedSessions.set("s1", attached(over));
     (ui.client as unknown as { activeId: string | null }).activeId = "s1";
     renderApp("/");
     (ui as unknown as { sync: () => void }).sync();
+    flushSync();
+  }
+
+  it("has no tab strip: pages live in the views sheet, not a sideways scroller", () => {
+    attachOne();
+
+    // A 390px row cannot hold four tabs *and* the session chips. Rather than
+    // making either a gesture, the tabs become one sheet opened from the title
+    // bar — so the only horizontal scroller left in the chrome is the chips.
+    expect(header().querySelector('[role="tablist"]')).toBeNull();
+    expect(
+      header().querySelector('button[aria-label="Views and settings"]'),
+      "no views trigger",
+    ).not.toBeNull();
+    expect(
+      header().querySelector('button[aria-label="Sessions"]'),
+      "no sessions drawer trigger",
+    ).not.toBeNull();
+  });
+
+  it("keeps Stop outside the picker scroller so it cannot scroll out of reach", () => {
+    attachOne({ isStreaming: true });
     // the run state the header reads is the adapter's mirror, not `isStreaming`
     ui.runState.set("s1", "streaming");
     flushSync();
@@ -252,9 +274,6 @@ describe("app header on a phone", () => {
     const strip = controlStrip();
     expect(strip, "no session control strip").toBeDefined();
     expect(strip.className).toContain("overflow-x-auto");
-    // content-sized, not `basis-0`: a growing strip competed with the identity
-    // chips and was measured at 6px wide on a 1024px header
-    expect(strip.className).toContain("basis-auto");
     expect(strip.className).toContain("min-w-0");
 
     const stop = [...header().querySelectorAll<HTMLButtonElement>("button")].find(
@@ -265,35 +284,29 @@ describe("app header on a phone", () => {
     expect(header().contains(stop!)).toBe(true);
   });
 
-  it("wraps the controls under the tabs below lg and keeps the badge out of the strip", () => {
-    (
-      ui.client as unknown as { attachedSessions: Map<string, AttachedSession> }
-    ).attachedSessions.set("s1", attached());
-    (ui.client as unknown as { activeId: string | null }).activeId = "s1";
-    renderApp("/");
-    (ui as unknown as { sync: () => void }).sync();
-    flushSync();
+  it("puts the session chips on their own line under the title bar", () => {
+    attachOne();
 
-    // One row cannot hold tabs + identity + pickers + Stop on a phone. The
-    // header wraps so the control group takes a second line; the alternative
-    // (scrolling the whole header) hides controls behind a gesture.
-    expect(header().className).toContain("flex-wrap");
-
-    const group = controlStrip().parentElement!;
-    expect(group.className).toContain("w-full");
-    expect(group.className).toContain("lg:w-auto");
-
-    // the pickers are all in the one scroller
     const strip = controlStrip();
     const pickers = [...strip.querySelectorAll("button")];
     expect(pickers.length).toBeGreaterThanOrEqual(3);
 
-    // the run state is outside the scroller, so it is readable without scrolling
-    const badge = [...header().querySelectorAll("span")].find(
-      (s) => (s.textContent ?? "").trim() === "idle",
-    );
-    expect(badge, "no run-state badge").toBeDefined();
-    expect(strip.contains(badge!)).toBe(false);
+    // the strip is its own row below the title row, so the title is never
+    // squeezed by a model id the width of the screen
+    const titleRow = strip.parentElement!.previousElementSibling!;
+    expect(titleRow.className).toContain("flex");
+    expect(header().contains(titleRow)).toBe(true);
+  });
+
+  it("shows the session identity in the title bar, not a cwd chip row", () => {
+    attachOne();
+    ui.sessionNames.set("s1", "nightly review");
+    flushSync();
+
+    const title = header().querySelector("span.font-semibold");
+    expect(title?.textContent?.trim()).toBe("nightly review");
+    // and the cwd sits under it, truncated rather than wrapped
+    expect(header().textContent).toContain("/Users/hampus/program/uipi");
   });
 
   it("reserves the top safe area so the header is not under a notch", () => {

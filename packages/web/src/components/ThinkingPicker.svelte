@@ -1,9 +1,9 @@
 <script lang="ts">
   import { ui } from "$lib/state.svelte";
-  import * as Popover from "$lib/components/ui/popover/index.js";
+  import Picker from "./Picker.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
-  import { Badge } from "$lib/components/ui/badge/index.js";
   import BrainIcon from "@lucide/svelte/icons/brain";
+  import CheckIcon from "@lucide/svelte/icons/check";
   import type { Attachment } from "@uipi/protocol";
 
   let { sessionId }: { sessionId: string } = $props();
@@ -23,33 +23,36 @@
   }
 </script>
 
-<Popover.Root bind:open>
-  <Popover.Trigger>
-    {#snippet child({ props })}
-      <Button
-        {...props}
-        variant="outline"
-        size="sm"
-        class="text-xs font-normal shrink-0"
-        aria-label="Thinking level: {cur || 'default'}"
-      >
-        <BrainIcon class="size-3.5" />
-        <!-- the brain already says "thinking"; below sm the word only costs width -->
-        <span class="hidden sm:inline">{cur || "thinking"}</span>
-      </Button>
-    {/snippet}
-  </Popover.Trigger>
-  <Popover.Content class="w-40 p-1" align="end">
+<Picker bind:open title="Thinking level" description="how hard the model reasons">
+  {#snippet trigger(props)}
+    <Button
+      {...props}
+      variant="outline"
+      size="sm"
+      class="text-xs font-normal shrink-0 max-lg:min-h-9"
+      aria-label="Thinking level: {cur || 'default'}"
+    >
+      <BrainIcon class="size-3.5" />
+      <!-- the brain already says "thinking"; below sm the word only costs width -->
+      <span class="hidden sm:inline">{cur || "thinking"}</span>
+    </Button>
+  {/snippet}
+
+  <div class="flex flex-col gap-1">
     {#each levels as level (level)}
       <button
-        class="w-full text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground {cur ===
+        type="button"
+        class="flex min-h-10 w-full items-center gap-2 text-left text-xs px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground {cur ===
         level
           ? 'text-primary'
           : ''}"
         onclick={() => pick(level)}
       >
-        {level}{#if cur === level}<Badge variant="outline" class="ml-2">current</Badge>{/if}
+        <span class="flex-1 capitalize">{level}</span>
+        {#if cur === level}
+          <CheckIcon class="size-4 shrink-0" />
+        {/if}
       </button>
     {/each}
-  </Popover.Content>
-</Popover.Root>
+  </div>
+</Picker>

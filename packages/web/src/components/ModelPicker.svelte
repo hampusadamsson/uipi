@@ -1,8 +1,9 @@
 <script lang="ts">
   import { ui } from "$lib/state.svelte";
-  import * as Popover from "$lib/components/ui/popover/index.js";
+  import Picker from "./Picker.svelte";
   import * as Command from "$lib/components/ui/command/index.js";
   import { Button } from "$lib/components/ui/button/index.js";
+  import CheckIcon from "@lucide/svelte/icons/check";
   import type { ModelInfo } from "@uipi/protocol";
 
   let { sessionId }: { sessionId: string } = $props();
@@ -30,44 +31,47 @@
   }
 </script>
 
-<Popover.Root bind:open>
-  <Popover.Trigger>
-    {#snippet child({ props })}
-      <Button
-        {...props}
-        variant="outline"
-        size="sm"
-        class="text-xs font-normal gap-1 max-w-40 sm:max-w-none"
-      >
-        <span class="truncate">{cur?.modelId ?? "model"}</span>
-      </Button>
-    {/snippet}
-  </Popover.Trigger>
-  <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-0" align="end">
-    <Command.Root shouldFilter={false}>
-      <Command.Input placeholder="filter (e.g. claude, gpt)…" bind:value={filter} />
-      <Command.List class="max-h-[min(24rem,50vh)]">
-        {#each visible as m (m.provider + m.modelId)}
-          <Command.Item
-            value="{m.provider}/{m.modelId}"
-            class="min-h-10 {cur?.modelId === m.modelId ? 'text-primary' : ''}"
-            onSelect={() => pick(m)}
-          >
-            <span class="flex flex-col items-start gap-0.5">
-              <span class="font-medium">{m.displayName}</span>
-              <span class="text-muted-foreground">
-                {m.provider}{m.reasoning ? " · reasoning" : ""}</span
-              >
-            </span>
-          </Command.Item>
-        {/each}
-        <Command.Empty>no models match</Command.Empty>
-        {#if ui.models.length > visible.length}
-          <div class="text-[10px] text-muted-foreground px-3 py-1">
-            {ui.models.length} total — filter to narrow
-          </div>
-        {/if}
-      </Command.List>
-    </Command.Root>
-  </Popover.Content>
-</Popover.Root>
+<Picker bind:open title="Model" description="provider and model for this session">
+  {#snippet trigger(props)}
+    <Button
+      {...props}
+      variant="outline"
+      size="sm"
+      class="text-xs font-normal gap-1 max-w-40 max-lg:min-h-9 sm:max-w-none"
+    >
+      <span class="truncate">{cur?.modelId ?? "model"}</span>
+    </Button>
+  {/snippet}
+
+  <Command.Root shouldFilter={false}>
+    <Command.Input placeholder="filter (e.g. claude, gpt)…" bind:value={filter} />
+    <!-- Its own scroller at every size, with a hard ceiling: inside a sheet
+         the parent is content-sized, so "fill the space" would mean "however
+         tall the list is" — i.e. no ceiling at all. -->
+    <Command.List class="max-h-[min(24rem,50vh)] max-lg:max-h-[55dvh]">
+      {#each visible as m (m.provider + m.modelId)}
+        <Command.Item
+          value="{m.provider}/{m.modelId}"
+          class="min-h-10 {cur?.modelId === m.modelId ? 'text-primary' : ''}"
+          onSelect={() => pick(m)}
+        >
+          <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+            <span class="truncate font-medium">{m.displayName}</span>
+            <span class="truncate text-muted-foreground">
+              {m.provider}{m.reasoning ? " · reasoning" : ""}</span
+            >
+          </span>
+          {#if cur?.modelId === m.modelId}
+            <CheckIcon class="size-4 shrink-0" />
+          {/if}
+        </Command.Item>
+      {/each}
+      <Command.Empty>no models match</Command.Empty>
+      {#if ui.models.length > visible.length}
+        <div class="text-[10px] text-muted-foreground px-3 py-1">
+          {ui.models.length} total — filter to narrow
+        </div>
+      {/if}
+    </Command.List>
+  </Command.Root>
+</Picker>

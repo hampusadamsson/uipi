@@ -42,7 +42,7 @@
   <div
     bind:this={scroller}
     onscroll={onScroll}
-    class="h-full overflow-y-auto overscroll-contain px-3 md:px-4 py-3"
+    class="h-full overflow-y-auto overscroll-contain px-3 lg:px-4 py-3"
     role="log"
     aria-live="polite"
   >

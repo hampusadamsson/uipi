@@ -10,7 +10,6 @@
   import { Label } from "$lib/components/ui/label/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Textarea } from "$lib/components/ui/textarea/index.js";
-  import * as Select from "$lib/components/ui/select/index.js";
   import SlidersHorizontalIcon from "@lucide/svelte/icons/sliders-horizontal";
   import UsersIcon from "@lucide/svelte/icons/users";
   import BoxIcon from "@lucide/svelte/icons/box";
@@ -37,8 +36,6 @@
   ];
 
   let section = $state<SectionId>("general");
-  /** the compact mobile picker resolves its trigger label from these, not from mounted items */
-  const navItems = nav.map(({ id, label }) => ({ value: id, label }));
   /**
    * The scrolling pane, so a section switch starts at its top. Jumping from a
    * long section (roles) to a short one (advanced) would otherwise land mid-way
@@ -163,32 +160,47 @@
   }
 </script>
 
-<div class="flex flex-col md:flex-row flex-1 min-h-0">
-  <!-- Below md the 144px rail is too much of the width, so the sections move into
-       a compact picker above the content. The wrapper keeps the nav landmark
-       (it is a `role="navigation"` div, not a second `<nav>`), because below md
+<div class="flex flex-col lg:flex-row flex-1 min-h-0">
+  <!-- Below lg the 144px rail is too much of the width (and below lg the whole
+       page lives inside a sheet), so the sections become a horizontally
+       scrolling chip strip above the content. A `<Select>` would mean a
+       popover *inside* a sheet, with a listbox fighting the sheet for the
+       bottom of the screen; chips are one tap, always visible, and show where
+       you are without opening anything. The wrapper keeps the nav landmark
+       (it is a `role="navigation"` div, not a second `<nav>`), because below lg
        the rail is `hidden` and would otherwise leave the page without one. -->
   <div
     data-slot="settings-sections-mobile"
-    class="md:hidden shrink-0 p-2 border-b border-border"
+    class="lg:hidden shrink-0 border-b border-border"
     role="navigation"
     aria-label="Settings sections"
   >
-    <Select.Root type="single" bind:value={section} items={navItems}>
-      <Select.Trigger class="w-full" aria-label="Settings section">
-        <Select.Value />
-      </Select.Trigger>
-      <Select.Content>
-        {#each nav as item (item.id)}
-          <Select.Item value={item.id} label={item.label} />
-        {/each}
-      </Select.Content>
-    </Select.Root>
+    <div
+      class="flex gap-1 overflow-x-auto overscroll-x-contain px-2 py-2"
+      role="group"
+      aria-label="Settings sections"
+    >
+      {#each nav as item (item.id)}
+        <button
+          type="button"
+          data-section={item.id}
+          aria-current={section === item.id ? "page" : undefined}
+          class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none {section ===
+          item.id
+            ? 'border-transparent bg-accent font-medium text-accent-foreground'
+            : 'border-border text-muted-foreground'}"
+          onclick={() => (section = item.id)}
+        >
+          <item.icon class="size-3.5 shrink-0" />
+          <span class="whitespace-nowrap">{item.label}</span>
+        </button>
+      {/each}
+    </div>
   </div>
 
   <nav
     aria-label="Settings sections"
-    class="hidden md:flex w-36 shrink-0 border-r border-border overflow-y-auto overscroll-contain p-2 flex-col gap-0.5"
+    class="hidden lg:flex w-36 shrink-0 border-r border-border overflow-y-auto overscroll-contain p-2 flex-col gap-0.5"
   >
     {#each nav as item (item.id)}
       <button
@@ -208,7 +220,7 @@
 
   <div
     bind:this={pane}
-    class="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-3 md:p-4"
+    class="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-3 lg:p-4"
   >
     {#if section === "general"}
       <ConfigSection docId="settings">

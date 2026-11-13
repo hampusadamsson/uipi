@@ -1,8 +1,10 @@
 <script lang="ts">
   import { ui, rolePickerItems } from "$lib/state.svelte";
-  import * as Popover from "$lib/components/ui/popover/index.js";
+  import Picker from "./Picker.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
   import TagIcon from "@lucide/svelte/icons/tag";
+  import CheckIcon from "@lucide/svelte/icons/check";
 
   let { sessionId }: { sessionId: string } = $props();
   let open = $state(false);
@@ -49,32 +51,43 @@
 </script>
 
 {#if cur}
-  <Popover.Root bind:open>
-    <Popover.Trigger>
-      {#snippet child({ props })}
-        <Button {...props} variant="outline" size="sm" class="text-xs font-normal shrink-0">
-          <TagIcon class="size-3.5" />
-          <span class="max-w-24 truncate sm:max-w-none">{cur}</span>
-        </Button>
-      {/snippet}
-    </Popover.Trigger>
-    <Popover.Content class="w-[min(20rem,calc(100vw-2rem))] p-2" align="end">
-      <div class="text-[10px] text-muted-foreground px-1">role — a preset, not a lock</div>
-      <div class="max-h-[min(18rem,50vh)] overflow-y-auto">
-        {#each items as item (item.kind + item.label)}
-          <button
-            class="w-full text-left text-xs px-3 py-2 min-h-8 rounded-md hover:bg-accent hover:text-accent-foreground {item.current
-              ? 'text-primary'
-              : ''}"
-            onclick={() => pick(item)}
-          >
-            {item.label}
-          </button>
-        {/each}
-        {#if !loading && names.length === 0}
-          <div class="text-xs text-muted-foreground px-3 py-2">no roles found</div>
-        {/if}
-      </div>
-    </Popover.Content>
-  </Popover.Root>
+  <Picker bind:open title="Role" description="a preset, not a lock">
+    {#snippet trigger(props)}
+      <Button
+        {...props}
+        variant="outline"
+        size="sm"
+        class="text-xs font-normal shrink-0 max-lg:min-h-9"
+        aria-label="Role: {cur}"
+      >
+        <TagIcon class="size-3.5" />
+        <span class="max-w-24 truncate sm:max-w-none">{cur}</span>
+      </Button>
+    {/snippet}
+
+    <div class="text-[10px] text-muted-foreground px-1 max-lg:hidden">
+      role — a preset, not a lock
+    </div>
+    <div class="max-h-[min(18rem,50vh)] overflow-y-auto max-lg:max-h-[55dvh]">
+      {#each items as item (item.kind + item.label)}
+        <button
+          type="button"
+          class="flex min-h-10 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground {item.current
+            ? 'text-primary'
+            : ''}"
+          onclick={() => pick(item)}
+        >
+          <span class="min-w-0 flex-1 truncate">{item.label}</span>
+          {#if item.kind === "reload"}
+            <Badge variant="outline" class="shrink-0 text-[10px] font-normal">reload</Badge>
+          {:else if item.current}
+            <CheckIcon class="size-4 shrink-0" />
+          {/if}
+        </button>
+      {/each}
+      {#if !loading && names.length === 0}
+        <div class="text-xs text-muted-foreground px-3 py-2">no roles found</div>
+      {/if}
+    </div>
+  </Picker>
 {/if}

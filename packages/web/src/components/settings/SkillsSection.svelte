@@ -463,7 +463,7 @@
 </div>
 
 <Dialog.Root bind:open={emptyBodyOpen}>
-  <Dialog.Content class="sm:max-w-[32rem]">
+  <Dialog.Content class="lg:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>Save with an empty body?</Dialog.Title>
       <Dialog.Description class="text-xs">
@@ -489,7 +489,7 @@
 </Dialog.Root>
 
 <Dialog.Root bind:open={deleteOpen}>
-  <Dialog.Content class="sm:max-w-[32rem]">
+  <Dialog.Content class="lg:max-w-[32rem]">
     <Dialog.Header>
       <Dialog.Title>Delete skill {name}?</Dialog.Title>
       <Dialog.Description class="text-xs">
