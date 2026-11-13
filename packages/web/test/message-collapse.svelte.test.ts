@@ -84,7 +84,7 @@ describe("long assistant message", () => {
     expect(host.textContent).not.toContain("show full message");
     expect(host.querySelector("[data-slot=collapsible]")).toBeNull();
     // still the plain markdown body, unwrapped
-    expect(r.body()!.className).toBe("md text-sm break-words");
+    expect(r.body()!.className).toBe("md text-chat break-words");
     expect(r.body()!.textContent).toContain("all done");
     expect(r.bodyVisible()).toBe(true);
   });

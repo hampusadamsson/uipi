@@ -59,7 +59,7 @@
     <div class="flex justify-end">
       <!-- Quieter than a card: a plain right-aligned bubble, no ring, no shadow. -->
       <div
-        class="max-w-[85%] rounded-2xl rounded-br-sm bg-muted px-3 py-2 text-sm whitespace-pre-wrap break-words"
+        class="max-w-[85%] rounded-2xl rounded-br-sm bg-muted px-3 py-2 text-chat whitespace-pre-wrap break-words"
       >
         {entry.text}
       </div>
@@ -98,9 +98,9 @@
             <div class="min-w-0 flex-1">
               {#if html !== null}
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized in $lib/markdown.ts -->
-                <div class="md text-sm break-words">{@html html}</div>
+                <div class="md text-chat break-words">{@html html}</div>
               {:else}
-                <div class="text-sm whitespace-pre-wrap break-words">{entry.text}</div>
+                <div class="text-chat whitespace-pre-wrap break-words">{entry.text}</div>
               {/if}
             </div>
           </div>

@@ -98,6 +98,16 @@
   /* One face for both scales: the UI is a monospace-first Nerd Font surface. */
   --font-sans: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-mono: "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /*
+   * Chat text: 13px — one step below `text-sm` (0.875rem = 14px) and above the
+   * 12px chrome. The transcript is the densest reading surface in the UI, so it
+   * gets its own token instead of borrowing `text-sm`: rem-based utilities scale
+   * off the 16px root, so `text-sm` rendered *larger* than the body copy around
+   * it. The root font size is deliberately left alone — moving it would shrink
+   * the `2.75rem` / `min-h-11` touch targets below the 44px floor.
+   */
+  --text-chat: 0.8125rem;
+  --text-chat--line-height: calc(1.5 / 0.8125);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -148,7 +158,7 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -197,12 +207,29 @@
     font-size: 16px;
     min-height: 2.75rem;
   }
+  /* The composer asks for `text-chat` (a Tailwind utility, so inside
+     `@layer utilities`) and the vendored Textarea base sets `md:text-sm`.
+     Unlayered CSS outranks both, so a touch device keeps 16px — the one size
+     iOS will not zoom on. Re-stated with higher specificity than the plain
+     `textarea` rule above because `text-chat` is a class on the element. */
+  textarea.text-chat {
+    font-size: 16px;
+  }
   /* A dialog taller than the viewport must scroll inside itself, not push its
      own header and footer buttons off screen. */
   [data-slot="dialog-content"] {
     max-height: calc(100dvh - 2rem);
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+}
+
+/* The mirror of the composer rule above for a mouse: the vendored Textarea base
+   sets `md:text-sm`, a media-query utility that outranks a plain `text-chat`
+   class and would leave the composer at 14px while the transcript is 13px. */
+@media (pointer: fine) {
+  textarea.text-chat {
+    font-size: var(--text-chat);
   }
 }
 
@@ -238,17 +265,19 @@
   .md h6 {
     @apply mt-4 mb-1.5 font-semibold leading-snug;
   }
+  /* Headings are `em`, not rem: they scale with the chat body size instead of
+     the 16px root, so a 13px transcript does not get 16px headings. */
   .md h1 {
-    @apply text-base;
+    font-size: 1.15em;
   }
   .md h2 {
-    @apply text-[0.95rem];
+    font-size: 1.05em;
   }
   .md h3,
   .md h4,
   .md h5,
   .md h6 {
-    @apply text-sm;
+    font-size: 1em;
   }
   .md ul {
     @apply list-disc pl-5;

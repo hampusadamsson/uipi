@@ -179,7 +179,7 @@
       placeholder={runState === "idle"
         ? "Message ('/' for commands, @file to reference)"
         : "…agent is working — send to steer"}
-      class="min-h-11 max-h-40 resize-none text-base md:text-sm"
+      class="min-h-11 max-h-40 resize-none text-chat"
     ></Textarea>
     <div class="flex flex-col gap-1 shrink-0">
       {#if runState === "idle"}
