@@ -266,7 +266,7 @@
     <!-- lg: a vertical rail beside the form. Below lg it would be half the
          width, so the same rows become one scroll strip above the form. -->
     <div
-      class="flex flex-col gap-0.5 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:pb-1"
+      class="flex flex-col gap-0.5 lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain max-lg:w-full max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:pb-1"
       aria-label="Skills"
       role="group"
     >
@@ -357,7 +357,7 @@
         <input
           id="skill-disable-model-invocation"
           type="checkbox"
-          class="size-3.5 accent-primary"
+          class="size-3.5 shrink-0 accent-primary max-lg:size-5"
           checked={disableModelInvocation}
           onchange={(e) => (disableModelInvocation = e.currentTarget.checked)}
         />

@@ -15,7 +15,7 @@ Protocol / client / server / web split — `@uipi/protocol` (wire types only) �
 - Streaming chat, tool-call cards with streamed bash output and diffs
 - Model + thinking-level pickers, `/compact`, `@file` passthrough
 - 127.0.0.1 only, pi-native JSONL persistence, pi's own auth
-- 339 tests across 36 files, CI (typecheck/lint/format/test/build)
+- 560+ tests across 56 files, CI (typecheck/lint/format/test/build)
 
 ## Decided — pages in the web UI (skills)
 
@@ -105,14 +105,18 @@ and pays for it with an id allowlist and an mtime check.
 - **A page, not a dialog.** `/settings` is a real route (`SETTINGS_PAGE`,
   `pageIdFromPath` in `@uipi/client`'s route module) rendered as a
   `SettingsPage` with a left sub-nav: General, Roles, Skills, Sandbox, MCP,
-  Advanced. The tab comes from the same `pages` registry in `App.svelte` the
-  skills page uses, so adding a page stays a data row plus one branch.
-- **One list, two layouts.** Below `md` the 144px section rail would be half a
-  phone, so the same six sections become a `Select` picker above the pane; the
-  rail stays in the DOM (`hidden` until `md`) because it is the page's only nav
-  landmark and the existing tests drive its buttons. This is one example of the
-  rule in _Mobile_ below: a narrow screen gets a strip or a picker, never a
-  fixed side rail on a form.
+  Advanced. On mobile the same page renders inside a full-height sheet, opened
+  from the views sheet (see _Mobile_ below); the route is still what decides
+  it is showing. The tab comes from the same `pages` registry in `App.svelte`
+  the skills page uses, so adding a page stays a data row plus one branch.
+- **One list, two layouts.** Below `lg` the 144px section rail would be half a
+  phone (and below `lg` the whole page is a sheet), so the same six sections
+  become a horizontally scrolling chip strip above the pane; the rail stays in
+  the DOM (`hidden` until `lg`) because it is the page's only nav landmark and
+  the existing tests drive its buttons. Chips rather than a `Select`: a popover
+  listbox inside a sheet fights the sheet for the bottom of the screen. This is
+  one example of the rule in _Mobile_ below: a narrow screen gets a strip or a
+  modal, never a fixed side rail on a form.
 - **Deliberate exception to "pi defines it".** pi exports no roles/sandbox/mcp
   API — zero hits for those filenames in pi's `dist`, and `roles.json` is read by
   the user's own extension — so uipi **does** edit those files. But only against
@@ -216,56 +220,85 @@ interface ConfigDoc {
 - No project-skill editing: project scope is listed, never written.
 - No rename. A rename is delete + create, done by hand.
 
-## Decided — mobile layout
+## Decided — mobile layout (v2: modal-first)
 
-**Invariant:** a narrow screen is not a squeezed desktop. Nothing scrolls
-sideways, no control is unreachable, and every list keeps its state while it
-changes shape — one `section` / `selectedRole` / `selectedName` variable, two
-layouts.
+**Invariant:** a narrow screen is not a squeezed desktop. Below `lg`, chrome is
+not rearranged into smaller chrome — it becomes a **modal surface**. Nothing
+scrolls sideways, no control is unreachable, no two modals are stacked, and the
+URL still owns which page is showing.
 
-- **No fixed side rail on a form.** A 144–160px rail beside a form is fine at
-  `lg`+ and fatal on a phone: at `md` the Roles fields measured 60px wide. The
-  section rail, the roles list and the skills list all become a horizontal
-  scroll strip above their form below `lg`, and a column at `lg`. The strip
-  scroller declares `max-lg:flex-row max-lg:overflow-x-auto` and every row
-  `max-lg:min-h-11`.
-- **The header wraps; the strips inside it scroll.** Below `lg` the tabs take
-  the first line and the session controls take the second; from `lg` up it is
-  one row. A single row cannot hold tabs + identity + pickers + Stop on a phone,
-  and scrolling the _header_ to reach them hides controls — so the header wraps
-  and only the individual strips scroll. Stop and the run-state badge sit
-  _outside_ the picker scroller, because a control you must scroll sideways to
-  find is broken.
-- **`basis-0` on the tab strip is load-bearing.** With an `auto` basis the
-  strip's min-content width (the full row of tabs inside it) becomes the page's
-  min-content width, and a mobile browser then widens the layout viewport past
-  the device — measured: a 320px phone reporting `innerWidth` 371 and scrolling
-  the whole app sideways. The picker strip is the opposite: content-sized
-  (`basis-auto`) with the identity chips on a zero basis, so the pickers never
-  scroll on a screen that has room for them. Those chips also carry
-  `overflow-hidden` — in a wrapping flex container a content-sized item makes
-  the _line_ wrap rather than shrink, which pushed the controls to a second row
-  at 1280px.
+- **One sheet primitive, two presentations.** `lib/components/ui/sheet` wraps
+  bits-ui's `Dialog`, so every mobile surface gets the focus trap, Escape, a
+  blocking backdrop, `aria-modal` and a labelled title for free — the parts a
+  hand-rolled overlay forgets. `side="bottom"` is a bottom sheet (pages,
+  pickers); `side="left"` is the sessions drawer. The sheet owns no open state:
+  callers pass `open` and react to `onOpenChange`, so Esc, the backdrop, the X
+  and the Android back gesture all funnel through one place.
+- **Every dialog becomes a bottom sheet below `lg`.** `dialog-content.svelte`
+  keeps its centred-card form at `lg`+ and slides up from the bottom edge on a
+  phone, full width, rounded only at the top, `max-h-[92dvh]` with its own
+  scroller. New-session, UI events, delete confirmations and the skills
+  dialogs therefore match without any per-dialog work.
+- **Navigation is a drill-down, not stacked sheets.** The views sheet shows the
+  four destinations (Sessions / Skills / Schedules / Settings); picking a page
+  replaces the list _in place_ with a back chevron. Stacking a second modal is
+  how mobile apps get the "which X closes what" problem; one sheet with a back
+  chevron is the pattern a phone user already knows.
+- **The URL still owns the page.** Opening a page pushes its route; closing the
+  sheet navigates back to the chat with `goToSessionsPage(true)` — a
+  **replace**, so the back gesture cannot reopen the page that was just
+  dismissed. A deep link to `/settings` lands with the sheet already up.
+- **Sessions are a drawer.** The real `Sidebar` renders inside the left sheet
+  (filter, groups, pinned active row all intact) — the mobile form of the same
+  component, not a copy. New closes the drawer before opening its dialog.
+- **One picker, two presentations.** `components/Picker.svelte` takes a trigger
+  snippet and a body snippet: a popover anchored to its chip at `lg`+, a titled
+  bottom sheet below it. Role/thinking/model all use it, so the two layouts
+  render the same controls and cannot drift. Each list keeps its own bounded
+  scroller (`max-lg:max-h-[55dvh]`) — inside a content-sized sheet "fill the
+  space" would mean "however tall the list is".
+- **Settings sections are a chip strip, not a `<Select>`.** A popover listbox
+  inside a sheet fights the sheet for the bottom of the screen; six chips are
+  one tap each, always visible, and show where you are without opening
+  anything. The desktop rail stays in the DOM (`hidden` below `lg`) and both
+  drive the same `section`. Schedules/skills hide their duplicated `<h1>`
+  inside a sheet (`max-lg:sr-only`).
+- **Save is sticky.** A long Roles form hides Save a screenful above the thumb,
+  so the ConfigSection action row is `sticky bottom-0` below `lg` and an
+  ordinary row at `lg`.
+- **Rotation resets the modal flags.** The mobile tree unmounts at `lg`; an
+  `$effect` clears `drawerOpen`/`navOpen` on the swap so widening and narrowing
+  cannot pop a sheet open unasked. The _route_ survives a rotation, so a page
+  sheet comes back on the page it was on.
+- **`viewport.svelte.ts` is the only `lg` the JS knows.** A `resize`-driven
+  `innerWidth` reader (not `MediaQuery`, which does not propagate a viewport
+  that was already narrow at construction). Kept byte-identical to Tailwind's
+  `lg`, so CSS and component tree cannot disagree.
+- **No fixed side rail on a form.** The section rail, the roles list and the
+  skills list all become a horizontal scroll strip above their form below `lg`,
+  and a column at `lg`. The strip scroller declares
+  `max-lg:flex-row max-lg:overflow-x-auto` and every row `max-lg:min-h-11`.
 - **Touch, not pointer.** `@media (pointer: coarse)` sets a 44px floor on every
-  control and 16px text on every field. 16px is the only thing that stops iOS
-  zooming the page on focus and never zooming back; the floor is applied to
-  `button` elements rather than `[data-slot="button"]`, because a picker's
-  `Button` is a bits-ui trigger and carries `popover-trigger` as its slot.
+  control, on checkbox/radio _labels_ (the label is the hit area, the box grows
+  to 22px), and 16px text on every field — the one size iOS will not zoom on.
+  The floor is applied to `button` elements rather than `[data-slot="button"]`,
+  because a picker's `Button` is a bits-ui trigger carrying `popover-trigger`
+  as its slot.
 - **Pinch-zoom stays.** `maximum-scale=1.0` was removed from the viewport meta;
   suppressing zoom-on-focus via that tag is not an accessibility trade worth
-  making. Safe-area insets pad the header, the drawer and the input box.
-- **Density is a desktop affair.** The 21–28px controls at `md`+ are deliberate
-  and untested for touch; the unit tests therefore pin the _classes_ and leave
-  the phone measurements to the browser checks below.
+  making. Safe-area insets pad the title bar, the sheets and the input box.
 
-Shipped with it: `settings-mobile-nav.svelte.test.ts` (picker ↔ rail drive one
-`section`, all six entries offered, scroll reset) and
-`mobile-layout.svelte.test.ts` (rail-becomes-strip in settings/roles/skills,
-Stop outside the picker scroller, the header's wrap rule, `basis-0`/`basis-auto`
-pins). Verified in Chromium at 320/360/390/414/480/640/768/1024/1280/1440/1600px
-across settings × 4 sections, skills, schedules and chat: no document overflow
-at any width, no control under 40px on a coarse pointer, and the pickers fit
-without scrolling from 640px up.
+Shipped with it: `mobile-nav.svelte.test.ts` (drawer, views drill-down, close
+semantics, sheet a11y, pickers-as-sheets, rotation), rewritten
+`settings-mobile-nav.svelte.test.ts` (six chips drive the same `section`, no
+listbox), and `mobile-layout.svelte.test.ts` (no tab strip, Stop outside the
+picker scroller, title bar identity, sticky save bar, checkbox touch row).
+Verified in Chromium at 320/360/390/414/768/1024/1280/1440px across chat,
+drawer, views, settings × 6 sections, skills, schedules and all three pickers:
+no document overflow at any width, no control under 40px on a coarse pointer,
+every sheet anchored to its edge with its footer in view, and the whole flow
+(open page → back → close → browser Back) lands where it should without
+stacking a second modal.
 
 ## Decided — per-message usage meta (v1.4)
 

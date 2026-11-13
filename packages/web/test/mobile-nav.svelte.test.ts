@@ -311,3 +311,40 @@ describe("pickers on a phone", () => {
     expect(document.querySelector('[data-slot="sheet-content"]')).toBeNull();
   });
 });
+
+describe("mobile surfaces across a rotation", () => {
+  it("drops an open sheet when the window widens and does not reopen it on the way back", () => {
+    renderApp();
+    trigger("Sessions").click();
+    flushSync();
+    expect(openSheets()).toHaveLength(1);
+
+    // rotate to desktop: the mobile tree unmounts, so its flags must be cleared
+    setViewport(1280);
+    flushSync();
+    expect(host.querySelector('[role="tablist"]')).not.toBeNull();
+    expect(openSheets()).toHaveLength(0);
+
+    // and back: the sheet must not pop open unasked
+    setViewport(390);
+    flushSync();
+    expect(host.querySelector('[role="tablist"]')).toBeNull();
+    expect(openSheets()).toHaveLength(0);
+  });
+
+  it("stays on the page across a rotation instead of collapsing to the chat", async () => {
+    renderApp("/settings");
+    await settle();
+    expect(openSheets()).toHaveLength(1);
+
+    setViewport(1280);
+    flushSync();
+    expect(host.textContent).toContain("Roles");
+
+    setViewport(390);
+    flushSync();
+    await settle();
+    expect(openSheets()).toHaveLength(1);
+    expect(sheet("Settings")).not.toBeNull();
+  });
+});

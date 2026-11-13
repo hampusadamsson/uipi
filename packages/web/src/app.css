@@ -201,6 +201,20 @@
   [data-slot="sheet-content"] [data-view] {
     min-height: 3.5rem;
   }
+  /* A checkbox label is a control, not a caption: on a phone the text is the
+     hit area, so the whole row has to clear 44px. The box itself stays small
+     (a 44px checkbox looks broken), the label's box grows around it. */
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 2.75rem;
+    cursor: pointer;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    /* iOS draws its own small target; pad the element so the finger lands */
+    min-width: 1.375rem;
+    min-height: 1.375rem;
+  }
   /* iOS zooms the whole page when a focused field's text is under 16px, and
      never zooms back out. 16px is the only way to keep the layout stable while
      typing — the trade is a slightly larger field on a phone, which is wanted.

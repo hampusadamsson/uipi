@@ -314,3 +314,39 @@ describe("app chrome on a phone", () => {
     expect(header().className).toContain("env(safe-area-inset-top)");
   });
 });
+
+describe("settings save bar on a phone", () => {
+  it("sticks Save to the bottom of the sheet so a long form cannot hide it", async () => {
+    stubLoad({ settings: '{ "theme": "dark" }' });
+    render(SettingsPage);
+    await settle();
+
+    const save = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => (b.textContent ?? "").trim() === "Save",
+    )!;
+    expect(save, "no Save button").toBeDefined();
+
+    // class pin: happy-dom lays nothing out, and "reachable after scrolling a
+    // Roles form" is exactly a sticky-position claim
+    const bar = save.parentElement!;
+    expect(bar.className).toContain("sticky");
+    expect(bar.className).toContain("bottom-0");
+    // from lg up it goes back to an ordinary row at the end of the form
+    expect(bar.className).toContain("lg:static");
+  });
+
+  it("gives the checkbox labels a full touch row", async () => {
+    stubLoad();
+    render(SettingsPage);
+    // ConfigSection loads its document on mount; nothing renders until it lands
+    await settle();
+
+    // the label is the hit area; a 14px box with 12px text is a miss
+    const label = host.querySelector<HTMLElement>("#settings-hideThinkingBlock")!.closest("label");
+    expect(label, "checkbox is not wrapped in its label").not.toBeNull();
+    // the unlayered `@media (pointer: coarse)` rule supplies the 44px floor;
+    // the box itself grows a step so the target is not a 14px dot on touch
+    const box = host.querySelector<HTMLElement>("#settings-hideThinkingBlock")!;
+    expect(box.className).toContain("max-lg:size-5");
+  });
+});

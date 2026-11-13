@@ -104,6 +104,19 @@
   const navLabel = $derived(pages.find((p) => p.id === ui.page)?.label ?? "");
   const navHint = $derived(pages.find((p) => p.id === ui.page)?.hint ?? "");
 
+  // The mobile surfaces are unmounted at `lg`, so their open flags would
+  // otherwise survive a rotation and pop a sheet open unasked when the window
+  // narrows again. Reset them at the moment the layouts swap.
+  let wasDesktop = $state(isDesktop.current);
+  $effect(() => {
+    const now = isDesktop.current;
+    if (now && !wasDesktop) {
+      drawerOpen = false;
+      navOpen = false;
+    }
+    wasDesktop = now;
+  });
+
   /**
    * A sheet closed by Esc, by the backdrop, by the X or by the Android back
    * gesture means "leave whatever is on screen". On a page that is a

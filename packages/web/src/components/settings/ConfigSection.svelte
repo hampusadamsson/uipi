@@ -144,20 +144,33 @@
       </p>
     {/if}
 
-    <div class="flex items-center gap-2 flex-wrap">
+    <!-- The save bar sticks to the bottom of the mobile sheet: a long Roles
+         form otherwise hides Save a screenful above the thumb, and a settings
+         page you cannot save without hunting is not a settings page. From lg
+         up it is an ordinary row at the end of the form. -->
+    <div
+      class="sticky bottom-0 z-10 -mx-3 flex items-center gap-2 flex-wrap border-t border-border bg-background/95 px-3 py-2 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none"
+    >
       <Button
         variant="outline"
         size="sm"
-        class="text-xs"
+        class="text-xs max-lg:min-h-11"
         disabled={!dirty || saving}
         onclick={revert}
       >
         Revert
       </Button>
-      <Button size="sm" class="text-xs" disabled={!dirty || saving} onclick={() => void save()}>
+      <Button
+        size="sm"
+        class="text-xs max-lg:min-h-11"
+        disabled={!dirty || saving}
+        onclick={() => void save()}
+      >
         {saving ? "Saving…" : "Save"}
       </Button>
-      <span class="text-xs text-muted-foreground">a .bak of the previous version is kept</span>
+      <span class="text-xs text-muted-foreground max-lg:hidden">
+        a .bak of the previous version is kept
+      </span>
       <div class="flex-1"></div>
       <span class="text-xs text-muted-foreground">{dirty ? "unsaved changes" : "saved"}</span>
     </div>

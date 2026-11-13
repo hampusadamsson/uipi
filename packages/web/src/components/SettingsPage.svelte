@@ -312,7 +312,7 @@
                   <input
                     id="settings-hideThinkingBlock"
                     type="checkbox"
-                    class="size-3.5 accent-primary"
+                    class="size-3.5 shrink-0 accent-primary max-lg:size-5"
                     checked={bool(draft.hideThinkingBlock)}
                     onchange={(e) => set({ hideThinkingBlock: e.currentTarget.checked })}
                   />
@@ -322,7 +322,7 @@
                   <input
                     id="settings-enableInstallTelemetry"
                     type="checkbox"
-                    class="size-3.5 accent-primary"
+                    class="size-3.5 shrink-0 accent-primary max-lg:size-5"
                     checked={bool(draft.enableInstallTelemetry)}
                     onchange={(e) => set({ enableInstallTelemetry: e.currentTarget.checked })}
                   />
@@ -356,7 +356,7 @@
                  list, two layouts, one selection state. -->
             <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
               <div
-                class="shrink-0 flex flex-col gap-0.5 max-lg:-mx-3 max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:border-b max-lg:border-border max-lg:px-3 max-lg:pb-2 lg:w-40"
+                class="shrink-0 flex flex-col gap-0.5 max-lg:w-full max-lg:flex-row max-lg:overflow-x-auto max-lg:overscroll-x-contain max-lg:pb-2 lg:w-40"
                 role="group"
                 aria-label="Roles"
               >
@@ -516,7 +516,7 @@
                   <input
                     id="role-hidden"
                     type="checkbox"
-                    class="size-3.5 accent-primary"
+                    class="size-3.5 shrink-0 accent-primary max-lg:size-5"
                     checked={bool(role.hidden)}
                     onchange={(e) => setRole(draft, set, name, { hidden: e.currentTarget.checked })}
                   />

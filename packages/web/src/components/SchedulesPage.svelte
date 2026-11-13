@@ -350,7 +350,7 @@
     <input
       id="schedule-enabled"
       type="checkbox"
-      class="size-3.5 accent-primary"
+      class="size-3.5 shrink-0 accent-primary max-lg:size-5"
       checked={enabled}
       onchange={(e) => (enabled = e.currentTarget.checked)}
     />
