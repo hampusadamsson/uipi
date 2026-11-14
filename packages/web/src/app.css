@@ -216,8 +216,9 @@
     min-height: 1.375rem;
   }
   /* iOS zooms the whole page when a focused field's text is under 16px, and
-     never zooms back out. 16px is the only way to keep the layout stable while
-     typing — the trade is a slightly larger field on a phone, which is wanted.
+     never zooms back out, so 16px is the floor for form fields on touch. The
+     composer overrides this back to the chat size (see the `textarea.text-chat`
+     rule below); the exception that keeps iOS from zooming lives there.
      The min-height is what keeps a denser field (the sidebar filter is `h-7`)
      from clipping the larger text. */
   input:not([type="checkbox"]):not([type="radio"]),
@@ -226,14 +227,6 @@
   [data-slot="select-trigger"] {
     font-size: 16px;
     min-height: 2.75rem;
-  }
-  /* The composer asks for `text-chat` (a Tailwind utility, so inside
-     `@layer utilities`) and the vendored Textarea base sets `md:text-sm`.
-     Unlayered CSS outranks both, so a touch device keeps 16px — the one size
-     iOS will not zoom on. Re-stated with higher specificity than the plain
-     `textarea` rule above because `text-chat` is a class on the element. */
-  textarea.text-chat {
-    font-size: 16px;
   }
   /* A dialog taller than the viewport must scroll inside itself, not push its
      own header and footer buttons off screen. Both dialog flavours on a phone
@@ -249,12 +242,30 @@
   }
 }
 
-/* The mirror of the composer rule above for a mouse: the vendored Textarea base
-   sets `md:text-sm`, a media-query utility that outranks a plain `text-chat`
-   class and would leave the composer at 14px while the transcript is 13px. */
-@media (pointer: fine) {
-  textarea.text-chat {
-    font-size: var(--text-chat);
+/*
+ * The composer: the transcript's own size, at every pointer type.
+ *
+ * The vendored Textarea base sets `md:text-sm` (14px), and the coarse-pointer
+ * block above raises every `textarea` to 16px for iOS. Either one leaves the
+ * input a size off from the 13px messages right above it, which reads as a
+ * different app. This rule is unlayered, so it outranks the utility layers
+ * regardless of order, and its element+class specificity outranks the bare
+ * `textarea` selector.
+ *
+ * iOS Safari is the one exception: it zooms the page whenever a focused field is
+ * under 16px and never zooms back, so the floor stays there. A slightly larger
+ * field on iOS beats a page stuck at 1.6x. The check is `-webkit-touch-callout`
+ * (a WebKit property no other engine implements) *and* a coarse pointer, because
+ * macOS Safari implements the property too and must keep the chat size.
+ */
+textarea.text-chat {
+  font-size: var(--text-chat);
+}
+@supports (-webkit-touch-callout: none) {
+  @media (hover: none) and (pointer: coarse) {
+    textarea.text-chat {
+      font-size: 16px;
+    }
   }
 }
 

@@ -9,6 +9,8 @@
 // and turns it into `ui.newSession(cwd)`, so it must never reach `sendPrompt`
 // (pi has no `/new` command). It also needs the attached session's cwd to have
 // anywhere to create the session in.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import InputBox from "../src/components/InputBox.svelte";
@@ -211,5 +213,31 @@ describe("composer stop control", () => {
 
     expect(host.textContent).toContain("Send");
     expect(host.textContent).not.toContain("Stop");
+  });
+});
+
+describe("composer typography", () => {
+  it("sizes the input like the transcript, not a step larger", () => {
+    render();
+
+    // The composer carries `text-chat`, the same token the message bodies use.
+    // A bare `textarea`/`md:text-sm` would leave it at 14–16px above 13px
+    // messages; the class is what lets app.css pin both to one size.
+    const ta = textarea();
+    expect(ta.className).toContain("text-chat");
+
+    // and the token is the chat size, not a form-field size (class pin:
+    // happy-dom does no layout, so the value itself is asserted in app.css)
+    // vitest runs with the package root as cwd
+    const css = readFileSync(resolve(process.cwd(), "src/app.css"), "utf8");
+    expect(css).toMatch(/--text-chat:\s*0\.8125rem/);
+    // one unlayered rule owns the composer, so the touch 16px floor cannot
+    // win outside iOS
+    expect(css).toMatch(/textarea\.text-chat\s*\{\s*font-size:\s*var\(--text-chat\)/);
+    // the iOS exception is nested inside a coarse-pointer query: macOS Safari
+    // implements the same WebKit property and must keep the chat size
+    expect(css).toMatch(/@supports \(-webkit-touch-callout: none\)/);
+    expect(css).toMatch(/@media \(hover: none\) and \(pointer: coarse\)/);
+    expect(css).toMatch(/font-size: 16px/);
   });
 });
