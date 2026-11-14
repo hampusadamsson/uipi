@@ -16,6 +16,15 @@ export interface TranscriptEntry {
   id: string;
   /** Raw usage/timing numbers for assistant messages; the UI formats them. */
   meta?: TranscriptEntryMeta;
+  /**
+   * Why the turn produced nothing, when pi gave up on it.
+   *
+   * An assistant message that failed (`stopReason: "error"`) has no content at
+   * all: pi reports the reason out of band in `errorMessage`. Without carrying
+   * it here the turn renders as a user prompt followed by nothing — the whole
+   * exchange silently disappears, which reads as "the UI hung".
+   */
+  error?: string;
 }
 
 /**
@@ -179,6 +188,28 @@ function roleOf(m: unknown): string | undefined {
   return (m as { role?: string }).role;
 }
 
+/**
+ * pi's own failure reason for a message, or `undefined` when it succeeded.
+ *
+ * `errorMessage` is what pi writes on a failed assistant message; `error` is
+ * accepted too because the raw provider error is sometimes surfaced under that
+ * name. An empty result is treated as absent so it cannot render an empty row.
+ */
+function errorOf(m: unknown): string | undefined {
+  if (!m || typeof m !== "object") return undefined;
+  const mm = m as { errorMessage?: unknown; error?: unknown; stopReason?: unknown };
+  const raw = mm.errorMessage ?? mm.error;
+  if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
+  if (raw && typeof raw === "object") {
+    const message = (raw as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message.trim();
+    return JSON.stringify(raw);
+  }
+  // an `error` stop with no reason still failed: say so rather than showing nothing
+  if (mm.stopReason === "error") return "the model request failed";
+  return undefined;
+}
+
 function textOf(m: unknown): string {
   const mm = m as { content?: unknown };
   if (!mm) return "";
@@ -209,6 +240,8 @@ function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
   };
   const meta = metaOf(m);
   if (meta) entry.meta = meta;
+  const error = errorOf(m);
+  if (error) entry.error = error;
   return entry;
 }
 
@@ -246,6 +279,30 @@ function metaOf(m: unknown): TranscriptEntryMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+/**
+ * Drop a trailing failed attempt that a new one supersedes.
+ *
+ * pi retries a failed request, and every attempt begins with its own
+ * `message_start` and ends with its own errored assistant message. Left alone
+ * that stacks one identical "no response" row per try. Only the outcome of the
+ * whole turn is worth showing, and the composer's retry counter already reports
+ * the attempts in between, so a failure that produced no text is replaced by
+ * the attempt that follows it.
+ */
+function dropSupersededFailure(out: TranscriptEntry[]): void {
+  const last = out.at(-1);
+  if (
+    last &&
+    last.kind === "message" &&
+    last.role === "assistant" &&
+    last.error !== undefined &&
+    last.text === "" &&
+    last.toolCalls.length === 0
+  ) {
+    out.pop();
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyEvent(out: TranscriptEntry[], ev: any): void {
   if (!ev || typeof ev !== "object") return;
@@ -254,7 +311,9 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
       const msg = fromMessage(ev.message, `msg${out.length}`);
       if (!msg) break;
       // dedupe: snapshot may already contain this message (e.g. replayed history)
-      if (!out.some((e) => e.id === msg.id)) out.push(msg);
+      if (out.some((e) => e.id === msg.id)) break;
+      if (msg.role === "assistant") dropSupersededFailure(out);
+      out.push(msg);
       break;
     }
     case "message_update": {
@@ -293,6 +352,14 @@ function applyEvent(out: TranscriptEntry[], ev: any): void {
         const meta = metaOf(ev.message);
         if (meta) last.meta = meta;
         else delete last.meta;
+        const error = errorOf(ev.message);
+        if (error) last.error = error;
+        else delete last.error;
+      } else if (ev.message?.role === "assistant" && errorOf(ev.message)) {
+        // A failure can arrive as a lone `message_end` with no preceding
+        // `message_start`; it still has to reach the transcript.
+        const msg = fromMessage(ev.message, `msg${out.length}`);
+        if (msg) out.push(msg);
       }
       break;
     }
@@ -382,6 +449,11 @@ function ensureAssistantEntry(out: TranscriptEntry[], callId: string): Transcrip
 }
 
 function coalesce(entries: TranscriptEntry[]): TranscriptEntry[] {
-  // drop empty assistant filler entries except those with toolCalls
-  return entries.filter((e) => e.kind !== "message" || e.text.length > 0 || e.toolCalls.length > 0);
+  // Drop empty filler entries, except those that carry something a reader must
+  // see: tool calls, or a failure. An errored turn has no text at all, so
+  // filtering it out is what made a failed run vanish from the transcript.
+  return entries.filter(
+    (e) =>
+      e.kind !== "message" || e.text.length > 0 || e.toolCalls.length > 0 || e.error !== undefined,
+  );
 }

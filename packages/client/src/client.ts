@@ -140,6 +140,15 @@ export class UipiClient {
   private contextTokensById = new Map<string, number>();
   private pendingModelById = new Map<string, { provider: string; modelId: string }>();
   /**
+   * In-flight automatic retry of a failed model request, per session.
+   *
+   * pi retries a failed request up to three times with growing backoff, so a
+   * provider that is down keeps the run silent for roughly a minute. The run
+   * state alone would show "thinking…" for that whole time, so the attempt is
+   * exposed separately for the UI to explain the wait.
+   */
+  private retryById = new Map<string, { attempt: number; maxAttempts: number; message: string }>();
+  /**
    * The session's own display name, as pi persists it (unnamed sessions have no
    * entry). Folded from `proto.attached` / `proto.sessionState` so a reconnect
    * rehydrates it, and from the `proto.sessionName` push so a rename — typed as
@@ -147,6 +156,8 @@ export class UipiClient {
    * without a refresh.
    */
   private sessionNameById = new Map<string, string>();
+  /** false until the first successful connect, so reconnects can be told apart */
+  private hadConnection = false;
   /** cwd {@link skills} was fetched for, so a re-fetch only happens on change */
   private loadedSkillsCwd: string | null = null;
   private uiEvents: UiEvent[] = [];
@@ -212,6 +223,18 @@ export class UipiClient {
   }
 
   /**
+   * The retry currently in flight for a session, if the last request failed.
+   *
+   * `attempt` counts from 1 and `maxAttempts` is pi's own cap; `message` is the
+   * provider's reason. Undefined once the retries end — success or not.
+   */
+  retryOf(
+    sessionId: string,
+  ): { attempt: number; maxAttempts: number; message: string } | undefined {
+    return this.retryById.get(sessionId);
+  }
+
+  /**
    * Optimistically mark a session busy for a manual compaction, which pi only
    * reports once it has aborted any run. Marks the compaction as the sole
    * in-flight work, so its `compaction_end` (no `agent_settled` follows) is what
@@ -259,6 +282,8 @@ export class UipiClient {
     if (!active) {
       this.compactionOnlyById.delete(sessionId);
       this.runConfirmedById.delete(sessionId);
+      // a settled run has no retry left to report
+      this.retryById.delete(sessionId);
     }
     if (active) {
       if (this.stateOf(sessionId) === "idle") this.runStateById.set(sessionId, "thinking");
@@ -383,11 +408,12 @@ export class UipiClient {
   }
 
   async openSession(sessionFile: string): Promise<void> {
-    const m = await this.conn.request<AttachedMsg>({
+    const m = await this.conn.request<AttachedMsg | { type: "proto.error"; message: string }>({
       type: "proto.openSession",
       sessionFilePath: sessionFile,
     });
-    await this.onAttached(m);
+    if (m.type === "proto.error") throw new Error(m.message);
+    await this.onAttached(m as AttachedMsg);
   }
 
   /**
@@ -406,26 +432,28 @@ export class UipiClient {
     this.emit();
   }
 
+  /**
+   * Bind to a live session by id.
+   *
+   * Throws when the server does not know the id — a session id only exists in
+   * the process that minted it, so this is the normal answer from a server that
+   * restarted under an open tab. Callers use that to fall back to re-opening the
+   * session from its file.
+   */
   async attachTo(sessionId: string): Promise<void> {
-    const m = await this.conn.request<AttachedMsg>({ type: "proto.attach", sessionId });
-    await this.onAttached(m);
+    const m = await this.conn.request<AttachedMsg | { type: "proto.error"; message: string }>({
+      type: "proto.attach",
+      sessionId,
+    });
+    if (m.type === "proto.error") throw new Error(m.message);
+    await this.onAttached(m as AttachedMsg);
   }
 
   detach(sessionId: string): void {
     this.conn.sendFire({ type: "proto.detach", sessionId });
-    this.attachedSessions.delete(sessionId);
-    this.runStateById.delete(sessionId);
-    this.runActiveById.delete(sessionId);
-    this.runConfirmedById.delete(sessionId);
-    this.compactionOnlyById.delete(sessionId);
-    this.liveEventsById.delete(sessionId);
-    this.sentMessagesById.delete(sessionId);
-    this.sessionNameById.delete(sessionId);
-    if (this.activeId === sessionId) {
-      this.activeId = [...this.attachedSessions.keys()][0] ?? null;
-      // the switch to another session may switch cwd, and with it the skills
-      void this.syncSkillsForCwd();
-    }
+    this.forgetSession(sessionId);
+    // the switch to another session may switch cwd, and with it the skills
+    void this.syncSkillsForCwd();
     this.emit();
   }
 
@@ -701,6 +729,15 @@ export class UipiClient {
   // ------------------------------------------------------------ internals
 
   private async onConnect(): Promise<void> {
+    // A reconnect does not necessarily mean the server restarted, but every
+    // session id it handed out before may now be dead. Re-attach by file so a
+    // surviving session keeps its runtime (and a transient blip keeps the view),
+    // and clear only what the new process cannot confirm. Without this the tab
+    // stayed bound to a session the restarted server had never heard of, and
+    // the next prompt was answered "no such live session" while the header kept
+    // showing a model that nothing had applied.
+    if (this.hadConnection) await this.reattachAll();
+    this.hadConnection = true;
     void this.refreshRecentDirs();
     void this.refreshDefaults();
     // the switch to another session may switch cwd, and with it the skills
@@ -710,6 +747,55 @@ export class UipiClient {
     this.emit();
     // let the frontend restore its view (e.g. the session named by the URL)
     await this.onReady(this);
+  }
+
+  /**
+   * Re-bind every attached session after a reconnect.
+   *
+   * `proto.attach` only works for a session the current server process still
+   * has live. A session it lost (a restart) is re-opened from its file, which is
+   * what makes the tab usable again. Attachments whose file is gone are dropped
+   * along with their per-session state — a dead id must never be prompted.
+   */
+  private async reattachAll(): Promise<void> {
+    const files = new Map<string, string | null>();
+    for (const s of this.attachedSessions.values()) files.set(s.sessionId, s.sessionFile);
+    for (const [sessionId, sessionFile] of files) {
+      try {
+        await this.attachTo(sessionId);
+        continue;
+      } catch {
+        /* not live in the new process: fall through and re-open from its file */
+      }
+      if (sessionFile) {
+        try {
+          await this.openSession(sessionFile);
+          continue;
+        } catch {
+          /* the file is gone too */
+        }
+      }
+      this.forgetSession(sessionId);
+    }
+    this.emit();
+  }
+
+  /** Drop one attached session and everything keyed to its server-minted id. */
+  private forgetSession(sessionId: string): void {
+    this.attachedSessions.delete(sessionId);
+    this.runStateById.delete(sessionId);
+    this.runActiveById.delete(sessionId);
+    this.runConfirmedById.delete(sessionId);
+    this.compactionOnlyById.delete(sessionId);
+    this.liveEventsById.delete(sessionId);
+    this.sentMessagesById.delete(sessionId);
+    this.contextTokensById.delete(sessionId);
+    this.pendingModelById.delete(sessionId);
+    this.retryById.delete(sessionId);
+    this.sessionNameById.delete(sessionId);
+    if (this.activeId === sessionId) {
+      this.activeId = [...this.attachedSessions.keys()][0] ?? null;
+    }
   }
 
   private async onAttached(a: AttachedMsg): Promise<void> {
@@ -1006,6 +1092,26 @@ export class UipiClient {
         // still leaves the run open until `agent_settled`, since queued input
         // or a retry can follow.
         if (msg?.stopReason === "toolUse") this.runStateById.set(sessionId, "tooling");
+        break;
+      }
+      case "auto_retry_start": {
+        // A failed request is retried up to three times with growing backoff,
+        // so a broken model can leave the run quiet for a minute. Report it the
+        // moment it happens instead of looking like a hang.
+        const r = e as unknown as { attempt?: number; maxAttempts?: number; errorMessage?: string };
+        const attempt = typeof r.attempt === "number" ? r.attempt : 1;
+        const max = typeof r.maxAttempts === "number" ? r.maxAttempts : 1;
+        this.retryById.set(sessionId, {
+          attempt,
+          maxAttempts: max,
+          message: r.errorMessage?.trim() || "the request failed",
+        });
+        break;
+      }
+      case "auto_retry_end": {
+        // Retries over: the failure is now the turn's outcome, and the errored
+        // assistant message carries the reason into the transcript.
+        this.retryById.delete(sessionId);
         break;
       }
       default:

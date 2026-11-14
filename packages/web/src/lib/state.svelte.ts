@@ -179,6 +179,12 @@ export class UiState {
   contextTokens = new SvelteMap<string, number>();
   pendingModel = new SvelteMap<string, { provider: string; modelId: string }>();
   /**
+   * Sessions whose last request failed and is being retried, with the attempt
+   * counter pi reports. Without it a retrying run only says "thinking…" for up
+   * to a minute, which is indistinguishable from a hang.
+   */
+  retry = new SvelteMap<string, { attempt: number; maxAttempts: number; message: string }>();
+  /**
    * Each session's own display name, mirrored from the client. Kept beside
    * `attached`/`contextTokens` rather than read off `sessions`, because a rename
    * (a `/name` prompt, an extension) arrives as a `proto.sessionName` push and
@@ -623,6 +629,9 @@ export class UiState {
       const pm = c.pendingModel(id);
       if (pm) this.pendingModel.set(id, pm);
       else this.pendingModel.delete(id);
+      const retry = c.retryOf(id);
+      if (retry) this.retry.set(id, retry);
+      else this.retry.delete(id);
       const name = c.sessionName(id);
       if (name) this.sessionNames.set(id, name);
       else this.sessionNames.delete(id);

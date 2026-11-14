@@ -64,6 +64,10 @@ class FakeServer {
   } | null = null;
   /** every proto.reloadConfig the client sent, in order */
   reloads: string[] = [];
+  /** make proto.attach fail, as a restarted server does for an unknown id */
+  failAttach = false;
+  /** make proto.openSession fail, as when the session file is gone too */
+  failOpen = false;
   /** schedules the fake server stores, keyed by id (server-owned fields filled in) */
   schedules: Schedule[] = [
     {
@@ -276,6 +280,16 @@ class FakeServer {
       case "proto.newSession":
       case "proto.openSession":
       case "proto.attach":
+        // stand-ins for a restarted server: the session is gone, and its file
+        // is gone with it, so neither re-attach nor re-open can succeed
+        if (msg.type === "proto.attach" && this.failAttach) {
+          reply({ type: "proto.error", message: "no such session sess-1" } as S2C);
+          break;
+        }
+        if (msg.type === "proto.openSession" && this.failOpen) {
+          reply({ type: "proto.error", message: "session file is gone" } as S2C);
+          break;
+        }
         reply({
           type: "proto.attached",
           sessionId: this.sessionId,
@@ -573,6 +587,56 @@ describe("UipiClient headless", () => {
     expect(run).toContain("tooling");
     // the tool phase came *between* the two iterations, never after settling
     expect(run.indexOf("tooling")).toBeLessThan(run.indexOf("idle"));
+  });
+
+  // pi retries a failed request up to three times with growing backoff, so a
+  // provider that is down keeps a run silent for about a minute. Without a
+  // retry notice the only thing the UI can say is "thinking…", which is
+  // indistinguishable from a hang.
+  it("exposes the automatic retry of a failed request, then clears it", async () => {
+    await client.newSession("/proj");
+    const push = (event: unknown) =>
+      server.sockets[0].push({ type: "pi.evt", sessionId: "sess-1", event } as S2C);
+
+    push({ type: "agent_start" });
+    await flush();
+    expect(client.retryOf("sess-1")).toBeUndefined();
+
+    push({
+      type: "auto_retry_start",
+      attempt: 2,
+      maxAttempts: 3,
+      errorMessage: "Request timed out.",
+    });
+    await flush();
+    expect(client.retryOf("sess-1")).toEqual({
+      attempt: 2,
+      maxAttempts: 3,
+      message: "Request timed out.",
+    });
+    // the run is still active: a retry is work in flight, not a settle
+    expect(client.runActive("sess-1")).toBe(true);
+
+    push({ type: "auto_retry_end", success: false, attempt: 3, finalError: "Request timed out." });
+    push({ type: "agent_settled", aborted: false });
+    await flush();
+    expect(client.retryOf("sess-1")).toBeUndefined();
+    expect(client.stateOf("sess-1")).toBe("idle");
+  });
+
+  it("drops a retry notice when the run settles", async () => {
+    await client.newSession("/proj");
+    const push = (event: unknown) =>
+      server.sockets[0].push({ type: "pi.evt", sessionId: "sess-1", event } as S2C);
+    push({ type: "agent_start" });
+    push({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, errorMessage: "boom" });
+    await flush();
+    expect(client.retryOf("sess-1")).toBeDefined();
+
+    // settled without an auto_retry_end (aborted mid-retry): still no stale notice
+    push({ type: "agent_settled", aborted: true });
+    await flush();
+    expect(client.retryOf("sess-1")).toBeUndefined();
   });
 
   it("ignores agent_end and message_end as run enders", async () => {
@@ -922,6 +986,49 @@ describe("UipiClient headless", () => {
 
     expect(readyPaths.length).toBeGreaterThanOrEqual(2);
     expect(c.activeId).toBe("sess-1");
+  });
+
+  // Session ids are minted by the server process, so after a reconnect the ones
+  // the tab holds may belong to a process that no longer exists. Prompting them
+  // was answered "no such live session" while the header still showed a model
+  // nothing had applied. The client now re-binds every attachment, re-opening
+  // from the session file when the new process does not have it live.
+  it("re-binds attachments against the new process on reconnect", async () => {
+    await client.newSession("/proj");
+    expect(client.activeId).toBe("sess-1");
+    expect(client.getAttached("sess-1")).toBeDefined();
+
+    server.sockets[0].onclose?.();
+    await new Promise((r) => setTimeout(r, 1200));
+    server.sockets.at(-1)!.onopen?.();
+    await flush();
+    await flush();
+    await flush();
+
+    // the attachment is still there — re-bound, not dropped
+    expect(client.getAttached("sess-1")).toBeDefined();
+    expect(client.activeId).toBe("sess-1");
+  });
+
+  it("drops an attachment the new process cannot restore", async () => {
+    await client.newSession("/proj");
+    expect(client.getAttached("sess-1")).toBeDefined();
+
+    // the new process has no such live session, and the file is gone
+    server.failAttach = true;
+    server.failOpen = true;
+
+    server.sockets[0].onclose?.();
+    await new Promise((r) => setTimeout(r, 1200));
+    server.sockets.at(-1)!.onopen?.();
+    await flush();
+    await flush();
+    await flush();
+
+    // the dead id must not survive: a prompt to it could only ever fail
+    expect(client.getAttached("sess-1")).toBeUndefined();
+    expect(client.effectiveModel("sess-1")).toBeUndefined();
+    expect(client.stateOf("sess-1")).toBe("idle");
   });
 
   it("reports false for an unknown /s/<hash> path", async () => {

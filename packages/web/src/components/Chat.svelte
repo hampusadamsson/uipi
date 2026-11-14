@@ -10,6 +10,9 @@
 
   const entries = $derived<TranscriptEntry[]>(ui.transcript(sessionId));
   const run = $derived(ui.stateOf(sessionId));
+  // A failed request pi is retrying: the run stays "thinking" for the whole
+  // backoff, so name the reason or it reads as a hang.
+  const retry = $derived(ui.retry.get(sessionId));
 
   let scroller: HTMLElement | null = $state(null);
   let pinned = $state(true);
@@ -52,13 +55,19 @@
     {#if run !== "idle"}
       <div class="my-1.5 flex items-center gap-1.5">
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
-        <span class="text-[11px] text-muted-foreground">
-          assistant · {run === "thinking"
-            ? "thinking"
-            : run === "tooling"
-              ? "running tools"
-              : "responding"}
-        </span>
+        {#if retry}
+          <span class="text-[11px] text-destructive" data-testid="retry-notice">
+            retrying {retry.attempt}/{retry.maxAttempts} — {retry.message}
+          </span>
+        {:else}
+          <span class="text-[11px] text-muted-foreground">
+            assistant · {run === "thinking"
+              ? "thinking"
+              : run === "tooling"
+                ? "running tools"
+                : "responding"}
+          </span>
+        {/if}
       </div>
     {/if}
   </div>

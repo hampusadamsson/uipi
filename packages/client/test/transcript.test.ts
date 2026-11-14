@@ -356,6 +356,84 @@ describe("custom entry rendering", () => {
     expect(entries).toHaveLength(1);
   });
 
+  // A failed turn is an assistant message with NO content and `stopReason:
+  // "error"`; pi reports the reason out of band in `errorMessage`. Dropping it
+  // as an "empty filler" made an exhausted retry render as a prompt followed by
+  // nothing at all, which reads exactly like the UI having hung.
+  describe("a failed turn", () => {
+    const failed = {
+      role: "assistant",
+      id: "a-fail",
+      stopReason: "error",
+      errorMessage: "Request timed out.",
+      content: [],
+    };
+
+    it("survives coalescing and carries pi's reason", () => {
+      const entries = deriveTranscript({ messages: [userMsg, failed], events: [] });
+      const assistant = entries.find((e) => e.role === "assistant");
+      expect(assistant).toBeDefined();
+      expect(assistant!.text).toBe("");
+      expect(assistant!.error).toBe("Request timed out.");
+    });
+
+    it("is carried from a live message_end, not just the snapshot", () => {
+      const entries = deriveTranscript({
+        messages: [userMsg],
+        events: [
+          { type: "message_start", message: { ...failed, content: [] } },
+          { type: "message_end", message: failed },
+        ],
+      });
+      expect(entries.find((e) => e.role === "assistant")!.error).toBe("Request timed out.");
+    });
+
+    it("appears even when the failed turn streamed nothing before failing", () => {
+      // no message_start at all: the failure arrives as a lone message_end
+      const entries = deriveTranscript({
+        messages: [userMsg],
+        events: [{ type: "message_end", message: failed }],
+      });
+      expect(entries.find((e) => e.role === "assistant")!.error).toBe("Request timed out.");
+    });
+
+    it("collapses the superseded attempts of one failing turn", () => {
+      const attempt = (id: string) => [
+        { type: "message_start", message: { role: "assistant", id, content: [] } },
+        {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            id,
+            stopReason: "error",
+            errorMessage: "boom",
+            content: [],
+          },
+        },
+      ];
+      const entries = deriveTranscript({
+        messages: [userMsg],
+        events: [...attempt("a1"), ...attempt("a2"), ...attempt("a3")],
+      });
+      const failures = entries.filter((e) => e.role === "assistant");
+      expect(failures).toHaveLength(1);
+      expect(failures[0].error).toBe("boom");
+    });
+
+    it("still says something when pi reports no reason at all", () => {
+      const entries = deriveTranscript({
+        messages: [userMsg, { role: "assistant", id: "a2", stopReason: "error", content: [] }],
+        events: [],
+      });
+      expect(entries.find((e) => e.role === "assistant")!.error).toBe("the model request failed");
+    });
+
+    it("leaves a successful turn without an error", () => {
+      const entries = deriveTranscript({ messages: [userMsg, finalA], events: [] });
+      expect(entries.find((e) => e.role === "assistant")!.error).toBeUndefined();
+    });
+  });
+
   it("renders other custom types through the registry, and replacing a renderer wins", () => {
     const todo = { type: "custom", customType: "test-todo", data: { title: "ship it" }, id: "t1" };
     const base = { messages: [userMsg], events: [{ type: "entry_appended", entry: todo }] };

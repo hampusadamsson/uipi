@@ -66,6 +66,19 @@
     </div>
   {:else if isAssistant || entry.toolCalls.length > 0}
     <div class="group max-w-full md:max-w-[min(72ch,100%)]">
+      {#if entry.error}
+        <!-- The turn produced nothing: pi reports why out of band (auto-retry
+             already exhausted). Without this row the prompt and its answer both
+             disappear, which reads as a hang. -->
+        <div
+          class="my-1 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-chat text-destructive"
+          role="alert"
+          data-testid="message-error"
+        >
+          <span class="font-medium">{isAssistant ? "no response" : "error"}</span>
+          <span class="text-destructive/80">— {entry.error}</span>
+        </div>
+      {/if}
       {#if entry.thinking}
         <Collapsible.Root bind:open={thinkOpen} class="mb-1">
           <Collapsible.Trigger
@@ -125,7 +138,7 @@
       {#each entry.toolCalls as tc (tc.id)}
         <ToolCall {tc} />
       {/each}
-      {#if showMeta}
+      {#if showMeta && !entry.error}
         <!-- The row itself carries no hover styling (the tests pin that); the
              wrapper is what fades in on hover, and stays visible on touch. -->
         <div
