@@ -28,6 +28,36 @@ import { readSkill, writeSkill } from "./skills-write.js";
 import { UiHost } from "./uihost.js";
 import type { Send, Subscriber } from "./types.js";
 
+/** The slice of pi's ModelRuntime this module touches for a catalog refresh. */
+export type CatalogRefresher = {
+  refresh: (opts: { allowNetwork?: boolean }) => Promise<unknown>;
+};
+
+/**
+ * Refresh every provider's model catalog over the network, best-effort.
+ *
+ * `createAgentSessionServices` builds the runtime with
+ * `refresh({ allowNetwork: false })`, so a session inherits whatever catalog was
+ * last written to disk by some other pi process. uipi never refreshed over the
+ * network, so a provider's list could be days old: Bifrost served an id whose
+ * upstream had since been renamed (a bare `qwen/qwen3.5-9b`, which it can no
+ * longer route), and every request for it failed with "could not auto resolve a
+ * provider for the request".
+ *
+ * Failure is not fatal: a provider's own `refreshModels` has a bounded budget and
+ * falls back to its cached list, and pi collects per-provider errors in the
+ * result instead of throwing. So an offline start degrades to the cache rather
+ * than refusing to open a session — which is why the catch only warns.
+ */
+export async function refreshModelCatalog(runtime: CatalogRefresher | undefined): Promise<void> {
+  if (!runtime || typeof runtime.refresh !== "function") return;
+  try {
+    await runtime.refresh({ allowNetwork: true });
+  } catch (e) {
+    console.warn(`model catalog refresh failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export type CreateRuntimeFn = typeof createAgentSessionRuntime;
 interface LiveSession {
   id: string;
@@ -752,6 +782,10 @@ export class SessionService {
     const runtime = await this.createRuntime(
       async ({ cwd: _c }) => {
         const services = await createAgentSessionServices({ cwd: _c, agentDir: effectiveAgentDir });
+        // see refreshModelCatalog: without this a session runs on a possibly
+        // days-old provider catalog, which is how an unroutable model id stayed
+        // in the picker.
+        await refreshModelCatalog((services as { modelRuntime?: CatalogRefresher }).modelRuntime);
         return {
           ...(await createAgentSessionFromServices({
             services,
