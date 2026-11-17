@@ -100,6 +100,8 @@ class FakeServer {
   liveSessions: string[] = ["sess-1"];
   /** what a reload throws, or null when it succeeds */
   reloadError: string | null = null;
+  /** answer proto.listModels with an error, to exercise the failed-refresh path */
+  failModels = false;
   private roleSwitchSeq = 0;
 
   /** Another editor touched a document: the next save must lose the race. */
@@ -140,7 +142,18 @@ class FakeServer {
           ],
         } as S2C);
         break;
-      case "proto/listModels":
+      // The wire name is `proto.listModels` (dot). `proto/listModels` (slash)
+      // was sent by the client and answered by the server with
+      // `proto.error: unknown message`, which the client swallowed — so the
+      // picker rendered an empty list and said nothing. One discriminant in
+      // this enum used a slash; every other one uses a dot. Keeping the fake
+      // server on the same literal as the protocol is what makes the test fail
+      // when the two drift.
+      case "proto.listModels":
+        if (this.failModels) {
+          reply({ type: "proto.error", message: "unknown message proto.listModels" } as S2C);
+          break;
+        }
         reply({
           type: "proto.models",
           models: [
@@ -1567,6 +1580,32 @@ describe("UipiClient headless", () => {
       client.detach("sess-1");
       await flush();
       expect(client.sessionName("sess-1")).toBeNull();
+    });
+  });
+
+  describe("models", () => {
+    it("refreshModels asks for the dot-spelled discriminant and loads the list", async () => {
+      // The request name is pinned by the fake server's switch: it answers
+      // `proto.listModels` and nothing else, so a slash-spelled request would
+      // come back as `proto.error: unknown message` and the list would stay
+      // empty — which is exactly the bug this covers.
+      client.models = []; // ignore the connect-time refresh this test is not about
+
+      await client.refreshModels();
+
+      expect(client.models).toHaveLength(1);
+      expect(client.models[0].modelId).toBe("m");
+      expect(client.error, "a successful refresh reports no error").toBeNull();
+    });
+
+    it("surfaces a failed model refresh instead of leaving the picker silently empty", async () => {
+      client.models = [];
+      server.failModels = true;
+
+      await client.refreshModels();
+
+      expect(client.models ?? [], "no stale list is kept").toEqual([]);
+      expect(client.error).toContain("could not list models");
     });
   });
 

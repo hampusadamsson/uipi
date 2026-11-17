@@ -216,7 +216,7 @@ export class SessionService {
         await this.handleSessionCmd(msg, reply);
         break;
       }
-      case "proto/listModels": {
+      case "proto.listModels": {
         const first = [...this.live.values()][0];
         if (!first) {
           reply({ type: "proto.models", models: [] });

@@ -26,13 +26,15 @@ COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
 RUN pnpm install --frozen-lockfile --prod
 
-# ---- pi-config: pinned snapshot of the user's pi agent dir (hampusadamsson/pi) ----
-# The repo root is a near-exact snapshot of ~/.pi/agent. Fetched by SHA at build
-# time (a plain `git clone --branch <sha>` does not work, so fetch + FETCH_HEAD).
+# ---- pi-config: snapshot of the user's pi agent dir (hampusadamsson/pi) ----
+# The repo root is a near-exact snapshot of ~/.pi/agent. Fetched by ref at build
+# time — the `home` branch by default, so the image tracks whatever that branch
+# currently points at. Uses fetch + FETCH_HEAD, which takes a branch name or a
+# SHA interchangeably (CI passes the SHA it resolved from the branch).
 # No auth.json there: the image intentionally ships no credentials.
 FROM node:24-slim AS pi-config
 ARG PI_CONFIG_REPO=https://github.com/hampusadamsson/pi.git
-ARG PI_CONFIG_REF=256c9e672286bb1d265a173764bcdebfda75fd1b
+ARG PI_CONFIG_REF=home
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*

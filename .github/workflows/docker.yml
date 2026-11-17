@@ -27,9 +27,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Computes the lowercased image name, the tags, and the pinned pi agent-config
-  # ref. The Dockerfile pins the same PI_CONFIG_REF default, so local builds and
-  # CI bake the identical config snapshot.
+  # Computes the lowercased image name, the tags, and the pi agent-config ref.
+  # The pi config comes from the `home` branch of hampusadamsson/pi; its current
+  # SHA is resolved here and passed as PI_CONFIG_REF so the build is pinned to an
+  # immutable commit (the Dockerfile defaults to the branch name for local
+  # builds).
   prepare:
     runs-on: ubuntu-latest
     permissions:
@@ -47,13 +49,20 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF: ${{ github.ref }}
-          PI_CONFIG_REF: 256c9e672286bb1d265a173764bcdebfda75fd1b
+          PI_CONFIG_REPO: https://github.com/hampusadamsson/pi.git
+          PI_CONFIG_BRANCH: home
         run: |
           set -euo pipefail
           # GHCR requires a lowercase repository path.
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "sha_tag=sha-$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
-          echo "pi_config_ref=$PI_CONFIG_REF" >> "$GITHUB_OUTPUT"
+          # Resolve the pi config branch to its current commit SHA.
+          ref=$(git ls-remote --heads "$PI_CONFIG_REPO" "$PI_CONFIG_BRANCH" | cut -f1)
+          if [ -z "$ref" ]; then
+            echo "::error::branch '$PI_CONFIG_BRANCH' not found in $PI_CONFIG_REPO"
+            exit 1
+          fi
+          echo "pi_config_ref=$ref" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "extra_tag=latest" >> "$GITHUB_OUTPUT"
           else

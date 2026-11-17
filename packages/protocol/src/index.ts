@@ -179,7 +179,7 @@ export type C2S =
   | { type: "proto/recentDirs" }
   // request and reply share the discriminant; only the reply carries the values
   | { type: "proto.defaults" }
-  | { type: "proto/listModels" }
+  | { type: "proto.listModels" }
   | { type: "pi.prompt"; sessionId: string; text: string }
   | { type: "pi.steer"; sessionId: string; text: string }
   | { type: "pi.followUp"; sessionId: string; text: string }

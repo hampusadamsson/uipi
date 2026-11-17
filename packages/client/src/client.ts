@@ -348,13 +348,21 @@ export class UipiClient {
 
   async refreshModels(): Promise<void> {
     try {
-      const m = await this.conn.request<{ type: "proto.models"; models: ModelInfo[] }>({
-        type: "proto/listModels",
+      const m = await this.conn.request<{ type: "proto.models"; models: ModelInfo[] } | S2C>({
+        type: "proto.listModels",
       });
+      // `request` resolves with whatever frame carries the correlation id,
+      // including `proto.error` — a rejected command does not throw. Trusting
+      // the reply blindly assigned `undefined` to `models` and left an empty
+      // picker with no explanation.
+      if (m.type !== "proto.models") {
+        const message = (m as { message?: string }).message ?? m.type;
+        throw new Error(message);
+      }
       this.models = m.models;
       this.emit();
-    } catch {
-      /* no live session yet */
+    } catch (e) {
+      this.setError(`could not list models: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

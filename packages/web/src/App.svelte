@@ -3,6 +3,7 @@
   import type { Attachment } from "@uipi/protocol";
   import { ui, type RunState, type PageId } from "./lib/state.svelte";
   import { fmtCtx } from "./lib/format";
+  import { modelLabel, modelRefKey } from "./lib/models";
   import { isDesktop } from "./lib/viewport.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Chat from "./components/Chat.svelte";
@@ -255,8 +256,11 @@
             <span class="text-sm font-semibold truncate min-w-0" title={attach.cwd}>
               {attach.cwd.split("/").pop() || attach.cwd}
             </span>
-            <span class="text-xs text-muted-foreground truncate min-w-0 hidden xl:inline">
-              {modelShown?.provider}/{modelShown?.modelId} · {attach.thinkingLevel}
+            <span
+              class="text-xs text-muted-foreground truncate min-w-0 hidden xl:inline"
+              title={modelShown ? modelRefKey(modelShown) : undefined}
+            >
+              {modelShown ? modelLabel(modelShown) : "no model"} · {attach.thinkingLevel}
             </span>
             {#if sessionName}
               <span
