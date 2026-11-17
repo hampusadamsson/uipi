@@ -3,6 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import ConfigSection from "./settings/ConfigSection.svelte";
   import SkillsSection from "./settings/SkillsSection.svelte";
+  import AgentUpdateSection from "./settings/AgentUpdateSection.svelte";
   import JsonEditor from "./JsonEditor.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
@@ -624,12 +625,15 @@
     {:else if section === "skills"}
       <SkillsSection />
     {:else}
-      <div class="flex flex-col gap-2">
-        <h2 class="text-sm font-semibold">Advanced</h2>
-        <p class="text-xs text-muted-foreground">
-          zentui.json, subagents.json and web-search.json are extension-owned and edited in the
-          terminal, not here.
-        </p>
+      <div class="flex flex-col gap-4">
+        <AgentUpdateSection />
+        <div class="flex flex-col gap-2 border-t border-border pt-3">
+          <h2 class="text-sm font-semibold">Extension-owned config</h2>
+          <p class="text-xs text-muted-foreground">
+            zentui.json, subagents.json and web-search.json are extension-owned and edited in the
+            terminal, not here.
+          </p>
+        </div>
       </div>
     {/if}
   </div>

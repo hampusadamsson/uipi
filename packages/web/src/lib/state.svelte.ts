@@ -20,6 +20,7 @@ import {
 } from "@uipi/client";
 import { renderMarkdown } from "./markdown.js";
 import type {
+  AgentConfigSource,
   C2S,
   ConfigDoc,
   ConfigId,
@@ -536,6 +537,35 @@ export class UiState {
     const sessions = await this.client.reloadConfig(what);
     this.sync();
     return sessions;
+  }
+
+  /**
+   * The agent config checkout, as last checked or applied.
+   *
+   * Held in the adapter rather than the client because it describes one server's
+   * deployment, not conversation state: only the Settings card renders it.
+   */
+  agentSource = $state<AgentConfigSource | null>(null);
+
+  /** Ask the server about the config repo; `fetch` consults the remote. */
+  async checkAgentUpdate(fetch = true): Promise<AgentConfigSource | undefined> {
+    const source = await this.client.checkAgentUpdate(fetch);
+    if (source) this.agentSource = source;
+    return source;
+  }
+
+  /**
+   * Pull the config and reload live sessions. Returns the outcome, or undefined
+   * when the server refused outright (already surfaced as {@link error}).
+   */
+  async applyAgentUpdate(): Promise<
+    { applied: boolean; reloaded: string[]; source: AgentConfigSource } | undefined
+  > {
+    const res = await this.client.applyAgentUpdate();
+    if (!res) return undefined;
+    this.agentSource = res.source;
+    this.sync();
+    return res;
   }
 
   /**

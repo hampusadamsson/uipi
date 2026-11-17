@@ -23,6 +23,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Model as PiModel } from "@earendil-works/pi-ai";
 import { ConfigConflictError, listConfigs, readConfig, writeConfig } from "./config.js";
+import { describeSource, pullSource, resolveUpdate, type UpdateConfig } from "./agent-update.js";
 import { ScheduleService } from "./schedules.js";
 import { readSkill, writeSkill } from "./skills-write.js";
 import { UiHost } from "./uihost.js";
@@ -99,13 +100,23 @@ export class SessionService {
   private defaults: { cwd: string; agentDir: string } | undefined;
   /** set by transport: broadcast to all clients; the initiative's own subscribers are skipped via identity */
   broadcast: (msg: S2C, initiator?: unknown) => void = () => {};
+  /**
+   * Where the agent config repo lives, when the deployment declares it.
+   *
+   * Deliberately not a request field: the browser asks to check or update, and
+   * the server uses this — so a request can never point git at a URL of its
+   * choosing (see agent-update.ts).
+   */
+  private updateConfig: UpdateConfig;
 
   constructor(
     createRuntime: CreateRuntimeFn = createAgentSessionRuntime,
     defaults?: { cwd: string; agentDir: string },
+    updateConfig: UpdateConfig = {},
   ) {
     this.createRuntime = createRuntime;
     this.defaults = defaults;
+    this.updateConfig = updateConfig;
   }
 
   async handle(msg: C2S, reply: Send, _sub: Subscriber): Promise<void> {
@@ -246,6 +257,38 @@ export class SessionService {
         await this.handleSessionCmd(msg, reply);
         break;
       }
+      case "proto.agentUpdateCheck": {
+        try {
+          const resolved = await resolveUpdate(this.agentDir(), this.updateConfig);
+          const source = await describeSource(resolved, { fetch: msg.fetch !== false });
+          reply({ type: "proto.agentUpdate", source, applied: false, reloaded: [] });
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
+      case "proto.agentUpdateApply": {
+        try {
+          const resolved = await resolveUpdate(this.agentDir(), this.updateConfig);
+          const { source, moved } = await pullSource(resolved);
+          // A failed pull carries its reason in `source.error`; report it as the
+          // answer rather than a protocol error so the UI can show what git said
+          // (diverged history, no network) next to the version it is still on.
+          if (source.error) {
+            reply({ type: "proto.agentUpdate", source, applied: false, reloaded: [] });
+            break;
+          }
+          // Only a real change is worth disturbing running agents for.
+          const reloaded = moved ? await this.reloadEverything() : [];
+          reply({ type: "proto.agentUpdate", source, applied: moved, reloaded });
+          // Push the new state to every connected client, not just the one that
+          // asked: the role list, skills and commands may all have changed.
+          void this.replySessions(reply);
+        } catch (e) {
+          reply({ type: "proto.error", message: String(e) });
+        }
+        break;
+      }
       case "proto.listModels": {
         const first = [...this.live.values()][0];
         if (!first) {
@@ -261,6 +304,38 @@ export class SessionService {
           message: `unknown message ${(msg as { type?: string }).type}`,
         });
     }
+  }
+
+  /**
+   * Make every live session pick up whatever is on disk now.
+   *
+   * A config pull replaces files wholesale (roles.json, skills/, extensions/,
+   * prompts/), so this is the broad form of {@link reloadConfig}: pi's own
+   * resource loader re-reads extensions/skills/prompts, the settings manager
+   * re-reads settings.json, and the roles extension re-reads roles.json and
+   * re-applies the active role. Each target's own reload is used rather than a
+   * bespoke re-read, because those are the paths pi itself trusts.
+   *
+   * One failing session must not abort the rest — a single live agent wedged on
+   * a bad file should not stop the others from updating. Returns the ids that
+   * took the new config, so the caller can say how many actually moved.
+   */
+  private async reloadEverything(): Promise<string[]> {
+    const reloaded: string[] = [];
+    for (const s of [...this.live.values()]) {
+      try {
+        await s.session.settingsManager.reload();
+        await s.session.resourceLoader.reload();
+        await s.session.prompt("/role reload");
+        this.broadcastSessionState(s);
+        reloaded.push(s.id);
+      } catch (e) {
+        console.warn(
+          `could not reload config for session ${s.id}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+    return reloaded;
   }
 
   /**

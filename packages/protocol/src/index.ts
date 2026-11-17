@@ -25,6 +25,40 @@ export type ConfigId = "settings" | "roles" | "sandbox" | "mcp";
 export type ReloadWhat = "settings" | "roles" | "skills";
 
 /**
+ * Where the pi agent config comes from.
+ *
+ * The agent dir is a git repository of its own (roles, skills, extensions,
+ * prompts, settings): `~/.pi/agent` in a container/dev checkout. "Check for
+ * updates" compares that checkout against `remote`, and "update" pulls it.
+ *
+ * The repo is a *source*, never a remote the server invents: fields come from
+ * the deployment's own config (`agentState.update`), so the browser cannot point
+ * the server at an arbitrary URL.
+ */
+export interface AgentConfigSource {
+  /** the agent dir being described (absolute) */
+  agentDir: string;
+  /** the git remote the config is pulled from, when the dir is a repo */
+  remote: string | null;
+  /** branch the checkout tracks, when known */
+  branch: string | null;
+  /** the commit HEAD points at, short form; null when not a repo */
+  commit: string | null;
+  /**
+   * Commit the remote branch points at, when it was reachable during the check.
+   * null means "not checked" or "could not reach the remote" — never "no
+   * update", which is only `behind === 0`.
+   */
+  remoteCommit: string | null;
+  /** how many commits HEAD is behind the remote; null when not comparable */
+  behind: number | null;
+  /** local modifications that an update would have to deal with */
+  dirty: boolean;
+  /** the last thing that went wrong talking to git, for the UI to show */
+  error: string | null;
+}
+
+/**
  * A raw config document plus the mtime it was read at. The client echoes the
  * mtime back on save so the server can detect a concurrent edit instead of
  * silently clobbering it.
@@ -143,6 +177,21 @@ export type C2S =
    * user asks for it, and the server tells them which sessions it reached.
    */
   | { type: "proto.reloadConfig"; what: ReloadWhat }
+  /**
+   * Describe the agent config checkout (see {@link AgentConfigSource}). With
+   * `fetch` the server also asks the remote for its current commit, which is the
+   * only way to know whether an update exists; without it the answer comes from
+   * local refs and costs no network round trip.
+   */
+  | { type: "proto.agentUpdateCheck"; fetch?: boolean }
+  /**
+   * Pull the agent config from its remote and make live sessions pick it up.
+   *
+   * Only ever `git pull` inside the configured agent dir — the remote and branch
+   * are the deployment's, never the request's. Answers with the resulting
+   * {@link AgentConfigSource} plus which sessions took the new config.
+   */
+  | { type: "proto.agentUpdateApply" }
   /**
    * Create, overwrite or remove one of pi's skills by name. The server resolves
    * name → file (project or user scope) itself; no path crosses the wire.
@@ -366,6 +415,14 @@ export type S2C = S2CBase &
      */
     | { type: "proto.scheduleRun"; scheduleId: ScheduleId; run: ScheduleRun }
     | { type: "proto.models"; models: ModelInfo[] }
+    /**
+     * The agent config checkout, as a reply to `proto.agentUpdateCheck` and
+     * `proto.agentUpdateApply`. `apply` rides along so a client can tell an
+     * update that was just pulled from one that was merely inspected; `reloaded`
+     * lists the live sessions that picked the new config up (empty when nothing
+     * was running, or when the pull changed nothing).
+     */
+    | { type: "proto.agentUpdate"; source: AgentConfigSource; applied: boolean; reloaded: string[] }
     | {
         type: "proto.attached";
         sessionId: string;

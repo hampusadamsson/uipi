@@ -20,6 +20,8 @@ Options:
   --static <path>     built web assets to serve
   --cwd <path>        working directory new sessions default to
   --agent-dir <path>  pi agent dir (auth, settings, sessions, skills)
+  --config-remote <url>  git remote for Settings → Update (config repo)
+  --config-branch <name> branch to pull for Settings → Update
   -h, --help          print this help and exit
 
 Environment:
@@ -28,6 +30,9 @@ Environment:
   UIPI_STATIC     built web assets to serve (default packages/web/dist)
   UIPI_CWD        default working directory (a --cwd flag wins)
   UIPI_AGENT_DIR  default pi agent dir (an --agent-dir flag wins)
+  UIPI_CONFIG_REMOTE  git remote the agent config is pulled from (default: the
+                  checkout's own origin); only read by Settings → Update
+  UIPI_CONFIG_BRANCH  branch to pull (default: the checkout's current branch)
 
 Precedence: CLI flag > environment variable > built-in default.
 `;
@@ -47,6 +52,14 @@ export interface ResolvedDefaults {
   staticDir: string;
   cwd: string;
   agentDir: string;
+  /**
+   * Remote URL for the agent config repo, or "" to use the checkout's own
+   * `origin`. Deliberately server-side only: the update endpoint must never take
+   * a URL from a request.
+   */
+  configRemote: string;
+  /** Branch to track, or "" for the checkout's current branch. */
+  configBranch: string;
   help: boolean;
 }
 
@@ -55,7 +68,15 @@ export interface ResolvedDefaults {
  * are really wired up now: `main()` takes port, host and static dir from the
  * returned object, never from `process.env` directly.
  */
-const VALUE_FLAGS = new Set(["port", "host", "static", "cwd", "agent-dir"]);
+const VALUE_FLAGS = new Set([
+  "port",
+  "host",
+  "static",
+  "cwd",
+  "agent-dir",
+  "config-remote",
+  "config-branch",
+]);
 
 /** Expand a leading `~` (home dir) and make the path absolute. */
 function expandPath(value: string, env: Record<string, string | undefined>): string {
@@ -168,6 +189,8 @@ export function resolveDefaults(
     staticDir,
     cwd: expandPath(cwd, env),
     agentDir: expandPath(agentDir, env),
+    configRemote: flags.get("config-remote") ?? env.UIPI_CONFIG_REMOTE ?? "",
+    configBranch: flags.get("config-branch") ?? env.UIPI_CONFIG_BRANCH ?? "",
     help,
   };
 }
@@ -201,10 +224,13 @@ function main(): void {
       `cwd=${defaults.cwd} agentDir=${defaults.agentDir}`,
   );
 
-  const service = new SessionService(createAgentSessionRuntime, {
-    cwd: defaults.cwd,
-    agentDir: defaults.agentDir,
-  });
+  const service = new SessionService(
+    createAgentSessionRuntime,
+    { cwd: defaults.cwd, agentDir: defaults.agentDir },
+    // the update endpoint's only source of truth for where the config comes
+    // from; empty means "ask the checkout" (see agent-update.ts)
+    { remote: defaults.configRemote, branch: defaults.configBranch },
+  );
   const { httpServer } = createServer({ port: defaults.port, staticDir }, service);
   // arm the resolved agent dir's scheduler now, so cron jobs fire without a client;
   // stop it on shutdown so the pending timer never holds the process open

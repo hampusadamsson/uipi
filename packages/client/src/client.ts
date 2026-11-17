@@ -1,4 +1,5 @@
 import type {
+  AgentConfigSource,
   ConfigDoc,
   ConfigId,
   ModelInfo,
@@ -601,6 +602,66 @@ export class UipiClient {
     return m.sessions ?? [];
   }
 
+  /**
+   * Describe the agent config checkout.
+   *
+   * `fetch` asks the server to consult the remote, which is the only way to
+   * learn that an update exists; without it the answer describes local refs
+   * only and costs no network round trip. Returns undefined when the server
+   * refused, after raising {@link error}.
+   */
+  async checkAgentUpdate(fetch = true): Promise<AgentConfigSource | undefined> {
+    const m = await this.conn.request<
+      | {
+          type: "proto.agentUpdate";
+          source: AgentConfigSource;
+          applied: boolean;
+          reloaded: string[];
+        }
+      | { type: "proto.error"; message: string }
+    >({ type: "proto.agentUpdateCheck", fetch });
+    if (m.type !== "proto.agentUpdate") {
+      this.setError(m.message);
+      return undefined;
+    }
+    this.emit();
+    return m.source;
+  }
+
+  /**
+   * Pull the agent config and let live sessions pick it up.
+   *
+   * Resolves with the resulting state plus which sessions reloaded. A pull that
+   * git refused (dirty checkout, divergent history) is *not* thrown: it comes
+   * back with `applied: false` and the reason in `source.error`, because the user
+   * needs to read git's message next to the version they are still on.
+   */
+  async applyAgentUpdate(): Promise<
+    { source: AgentConfigSource; applied: boolean; reloaded: string[] } | undefined
+  > {
+    const m = await this.conn.request<
+      | {
+          type: "proto.agentUpdate";
+          source: AgentConfigSource;
+          applied: boolean;
+          reloaded: string[];
+        }
+      | { type: "proto.error"; message: string }
+    >({ type: "proto.agentUpdateApply" });
+    if (m.type !== "proto.agentUpdate") {
+      this.setError(m.message);
+      return undefined;
+    }
+    this.emit();
+    // the pull can change roles, skills and commands, so refresh everything the
+    // UI mirrors from disk rather than leaving stale lists on screen
+    if (m.applied) {
+      void this.refreshModels();
+      void this.refreshSessions();
+      void this.syncSkillsForCwd(undefined, true);
+    }
+    return { source: m.source, applied: m.applied, reloaded: m.reloaded };
+  }
   /**
    * Read one skill's real SKILL.md as raw frontmatter + body. The editor shows
    * these values verbatim so a save round-trips keys it does not understand.
