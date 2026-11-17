@@ -6,7 +6,7 @@
 // that carries native `opencode-go` models alongside bifrost ones holds two
 // rows with the same id — and the single-id comparison ticked both. The chip
 // showed only the id too, which hid the difference entirely.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import ModelPicker from "../src/components/ModelPicker.svelte";
 import { ui } from "../src/lib/state.svelte.js";
@@ -184,5 +184,27 @@ describe("model picker marks exactly the current row", () => {
     const visible = [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')];
     expect(visible).toHaveLength(1);
     expect(visible[0].textContent).toContain("qwen3.8-27b");
+  });
+
+  it("re-reads the catalog each time it opens, so a stale list cannot persist", () => {
+    ui.models = [model("bifrost", "stale/old-model", "old")];
+    attachSession({ provider: "bifrost", modelId: "stale/old-model" });
+    // ui.refreshModels delegates to the client's, so spy there
+    const refresh = vi.spyOn(ui.client, "refreshModels").mockResolvedValue(undefined);
+
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    component = mount(ModelPicker, { target: host, props: { sessionId: SID } });
+    flushSync();
+    const before = refresh.mock.calls.length;
+
+    host.querySelector<HTMLButtonElement>("button")!.click();
+    flushSync();
+
+    // a tab left open keeps whatever list it first loaded; a provider catalog
+    // changes under a running server, which is how an id that had stopped
+    // being routable stayed selectable
+    expect(refresh.mock.calls.length).toBeGreaterThan(before);
+    refresh.mockRestore();
   });
 });

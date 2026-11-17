@@ -12,6 +12,17 @@
   let filter = $state("");
 
   const cur = $derived(ui.modelOf(sessionId));
+
+  // Re-read the catalog every time the picker opens.
+  //
+  // `ui.models` is otherwise fetched only on connect and on attach, so a tab
+  // that stays open keeps whatever list it loaded first — and a provider's
+  // catalog does change under a running server (a model pulled or renamed
+  // upstream). That is how an id Bifrost had since stopped routing stayed
+  // selectable for days: the row was real, the list was just old.
+  $effect(() => {
+    if (open) void ui.refreshModels();
+  });
   const all = $derived(ui.models.length <= 50);
   // Filtering and truncation stay ours (the badge count and the "filter to
   // narrow" hint depend on it), so the Command list is rendered unfiltered and
