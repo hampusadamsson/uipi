@@ -180,6 +180,12 @@ export class UiState {
   contextTokens = new SvelteMap<string, number>();
   pendingModel = new SvelteMap<string, { provider: string; modelId: string }>();
   /**
+   * Optimistic thinking-level echo, mirroring the client's. Cleared when the
+   * server's `proto.sessionState` lands (see {@link sync}), since pi clamps the
+   * request to the model's capabilities.
+   */
+  pendingThinking = new SvelteMap<string, string>();
+  /**
    * Sessions whose last request failed and is being retried, with the attempt
    * counter pi reports. Without it a retrying run only says "thinking…" for up
    * to a minute, which is indistinguishable from a hang.
@@ -236,6 +242,18 @@ export class UiState {
       (this.attached.get(sessionId)?.model as { provider: string; modelId: string } | null) ??
       undefined
     );
+  }
+
+  /**
+   * Thinking level in effect: the optimistic echo, else the attached value.
+   *
+   * The echo exists so a click feels instant; it is cleared as soon as the
+   * server's `proto.sessionState` arrives, because pi clamps a request to what
+   * the model supports and the echoed value can be wrong.
+   */
+  thinkingLevelOf(sessionId: string | null): string | null | undefined {
+    if (!sessionId) return undefined;
+    return this.pendingThinking.get(sessionId) ?? this.attached.get(sessionId)?.thinkingLevel;
   }
 
   /** Active role of an attached session, or null when roleless. */
@@ -659,6 +677,11 @@ export class UiState {
       const pm = c.pendingModel(id);
       if (pm) this.pendingModel.set(id, pm);
       else this.pendingModel.delete(id);
+      // the client drops its echo when the authoritative sessionState arrives,
+      // so mirroring that drop is what lets a clamped level surface in the UI
+      const pt = c.pendingThinkingLevel(id);
+      if (pt) this.pendingThinking.set(id, pt);
+      else this.pendingThinking.delete(id);
       const retry = c.retryOf(id);
       if (retry) this.retry.set(id, retry);
       else this.retry.delete(id);

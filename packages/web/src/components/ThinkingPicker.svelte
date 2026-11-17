@@ -4,18 +4,28 @@
   import { Button } from "$lib/components/ui/button/index.js";
   import BrainIcon from "@lucide/svelte/icons/brain";
   import CheckIcon from "@lucide/svelte/icons/check";
-  import type { Attachment } from "@uipi/protocol";
+  import { sameModelRef } from "$lib/models";
 
   let { sessionId }: { sessionId: string } = $props();
   let open = $state(false);
 
-  const attach = $derived(
-    ui.attached.get(sessionId) as (Attachment & { thinkingLevel?: string }) | undefined,
-  );
-  const cur = $derived(attach?.thinkingLevel ?? "");
+  const cur = $derived(ui.thinkingLevelOf(sessionId) ?? "");
 
-  // pi thinking levels, standard order
-  const levels = ["minimal", "low", "medium", "high", "xhigh"];
+  //
+  // pi's complete ThinkingLevel set, in escalating order. `off` and `max` are
+  // real levels (off is what a non-reasoning model reports); omitting them left
+  // two states unreachable from the UI, so a session that was off could never be
+  // turned off again once raised.
+  const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+  /**
+   * The current model's own reasoning state, so the picker can say why a level
+   * may not take: pi clamps the requested level to what the model supports, and
+   * a non-reasoning model always reports `off`.
+   */
+  const modelReasons = $derived(
+    ui.models.find((m) => sameModelRef(ui.modelOf(sessionId), m))?.reasoning ?? null,
+  );
 
   function pick(level: string) {
     ui.cmd({ type: "pi.setThinkingLevel", sessionId, level });
@@ -54,5 +64,10 @@
         {/if}
       </button>
     {/each}
+    {#if modelReasons === false}
+      <p class="text-[10px] text-muted-foreground px-3 pt-1">
+        this model does not report reasoning, so pi keeps the level at “off”
+      </p>
+    {/if}
   </div>
 </Picker>

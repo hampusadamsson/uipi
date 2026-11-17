@@ -141,6 +141,15 @@ export class UipiClient {
   private contextTokensById = new Map<string, number>();
   private pendingModelById = new Map<string, { provider: string; modelId: string }>();
   /**
+   * Locally echoed thinking level, cleared when the server's own state arrives.
+   *
+   * pi **clamps** a requested level to what the current model supports, so this
+   * echo can be wrong (ask `high` on a non-reasoning model and it stays `off`).
+   * That is exactly why it is only an echo: the `proto.sessionState` broadcast
+   * that follows replaces it with what the session actually has.
+   */
+  private pendingThinkingById = new Map<string, string>();
+  /**
    * In-flight automatic retry of a failed model request, per session.
    *
    * pi retries a failed request up to three times with growing backoff, so a
@@ -320,6 +329,18 @@ export class UipiClient {
     return this.pendingModel(sessionId) ?? this.attachedSessions.get(sessionId)?.model;
   }
 
+  /** Thinking level shown by the UI: optimistic echo, else the attached value. */
+  thinkingLevel(sessionId: string): string | null | undefined {
+    return (
+      this.pendingThinkingById.get(sessionId) ?? this.attachedSessions.get(sessionId)?.thinkingLevel
+    );
+  }
+
+  /** The pending thinking echo for a session, or undefined once it is settled. */
+  pendingThinkingLevel(sessionId: string): string | undefined {
+    return this.pendingThinkingById.get(sessionId);
+  }
+
   getUiEvents(): readonly UiEvent[] {
     return this.uiEvents;
   }
@@ -470,6 +491,10 @@ export class UipiClient {
   cmd(m: C2S): void {
     if (m.type === "pi.setModel") {
       this.pendingModelById.set(m.sessionId, { provider: m.provider, modelId: m.modelId });
+      this.emit();
+    }
+    if (m.type === "pi.setThinkingLevel") {
+      this.pendingThinkingById.set(m.sessionId, m.level);
       this.emit();
     }
     this.conn.sendFire(m);
@@ -860,6 +885,7 @@ export class UipiClient {
     this.sentMessagesById.delete(sessionId);
     this.contextTokensById.delete(sessionId);
     this.pendingModelById.delete(sessionId);
+    this.pendingThinkingById.delete(sessionId);
     this.retryById.delete(sessionId);
     this.sessionNameById.delete(sessionId);
     if (this.activeId === sessionId) {
@@ -941,6 +967,9 @@ export class UipiClient {
         }
         this.storeSessionName(m.sessionId, m.name);
         this.pendingModelById.delete(m.sessionId);
+        // the server's state is authoritative: pi may have clamped the level, so
+        // drop the optimistic echo rather than keeping a value that is not real
+        this.pendingThinkingById.delete(m.sessionId);
         break;
       }
       case "proto.sessionName": {
@@ -978,6 +1007,7 @@ export class UipiClient {
       case "proto.error": {
         this.error = m.message;
         this.pendingModelById.clear();
+        this.pendingThinkingById.clear();
         // A rejected command is not necessarily a failed run: a prompt sent
         // mid-run is queued, not rejected. Settle only a run pi never confirmed.
         if (this.activeId && this.runActive(this.activeId) && !this.runConfirmed(this.activeId)) {

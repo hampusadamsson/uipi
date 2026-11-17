@@ -1090,6 +1090,70 @@ describe("UipiClient headless", () => {
   // folded those together, a switch left the header painting the old model /
   // thinking / tools (the deleted `proto.modelSet` only carried the model).
   // This drives the whole path headlessly: attach → setRole → one message.
+  describe("thinking level", () => {
+    it("echoes an optimistic level until the server's state lands", async () => {
+      await client.newSession("/proj");
+      // the fake session starts at the default level
+      expect(client.thinkingLevel("sess-1")).toBe("medium");
+
+      client.cmd({ type: "pi.setThinkingLevel", sessionId: "sess-1", level: "high" });
+      // instant feedback, before any round trip
+      expect(client.thinkingLevel("sess-1")).toBe("high");
+      expect(client.pendingThinkingLevel("sess-1")).toBe("high");
+
+      // the authoritative broadcast arrives with what the session *has*
+      server.sockets[0].push({
+        type: "proto.sessionState",
+        sessionId: "sess-1",
+        role: null,
+        name: null,
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "high",
+        tools: [],
+        commands: [],
+      } as S2C);
+      await flush();
+      expect(client.thinkingLevel("sess-1")).toBe("high");
+      // the echo is gone: the attached value is now the source of truth
+      expect(client.pendingThinkingLevel("sess-1")).toBeUndefined();
+    });
+
+    it("shows the clamped level, not the one that was asked for", async () => {
+      await client.newSession("/proj");
+      // `max` on a model that does not support it: pi clamps to xhigh
+      client.cmd({ type: "pi.setThinkingLevel", sessionId: "sess-1", level: "max" });
+      expect(client.thinkingLevel("sess-1")).toBe("max"); // the echo
+
+      server.sockets[0].push({
+        type: "proto.sessionState",
+        sessionId: "sess-1",
+        role: null,
+        name: null,
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "xhigh",
+        tools: [],
+        commands: [],
+      } as S2C);
+      await flush();
+
+      // echoing the request would have pinned a level that is not in effect
+      expect(client.thinkingLevel("sess-1")).toBe("xhigh");
+    });
+
+    it("drops the echo when the request is rejected", async () => {
+      await client.newSession("/proj");
+      client.cmd({ type: "pi.setThinkingLevel", sessionId: "sess-1", level: "turbo" });
+      expect(client.pendingThinkingLevel("sess-1")).toBe("turbo");
+
+      server.sockets[0].push({ type: "proto.error", message: "unknown thinking level" } as S2C);
+      await flush();
+
+      expect(client.pendingThinkingLevel("sess-1")).toBeUndefined();
+      // and the session keeps the level it really has
+      expect(client.thinkingLevel("sess-1")).toBe("medium");
+    });
+  });
+
   describe("role switch end to end", () => {
     it("attach reflects the session's role", async () => {
       server.role = "work";

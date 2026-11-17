@@ -651,7 +651,16 @@ export class SessionService {
       }
       case "pi.setThinkingLevel":
         try {
+          if (!THINKING_LEVELS.has(msg.level)) {
+            reply({ type: "proto.error", message: `unknown thinking level ${msg.level}` });
+            break;
+          }
+          // pi clamps to what the model supports and only persists a real change,
+          // so the level the session *has* afterwards is not necessarily the one
+          // asked for. Echoing the state (rather than trusting the request) is
+          // what makes the picker show the truth when a model cannot reason.
           s.session.setThinkingLevel(msg.level as never);
+          this.broadcastSessionState(s);
         } catch (e) {
           reply({ type: "proto.error", message: String(e) });
         }
@@ -1340,6 +1349,23 @@ type CompletionProvider = {
     argumentPrefix: string,
   ) => { value?: unknown }[] | null | Promise<{ value?: unknown }[] | null>;
 };
+
+/**
+ * Every thinking level pi accepts (`ThinkingLevel` in pi-agent-core).
+ *
+ * Kept here as a runtime check because the wire carries a plain string: an
+ * unknown value would otherwise reach `setThinkingLevel` and be persisted into
+ * the session transcript as-is.
+ */
+const THINKING_LEVELS: ReadonlySet<string> = new Set([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 /**
  * Role names as pi's own `/role` command would complete them.
