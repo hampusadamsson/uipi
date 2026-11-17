@@ -24,15 +24,35 @@ import type { AgentConfigSource } from "@uipi/protocol";
 const run = promisify(execFile);
 
 /** git stdout for a bound argv, or a thrown Error carrying git's stderr. */
+function gitEnv(cwd: string): Record<string, string> {
+  return {
+    ...(process.env as Record<string, string>),
+    // A network fetch must never block on an interactive credential prompt: the
+    // server has no tty, and a hung `git fetch` would hold a request open until
+    // the transport timed out with no explanation.
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "true",
+    // `GIT_CONFIG_*` injects config without touching disk. `safe.directory` is
+    // required because the agent dir is routinely owned by a different user than
+    // the process: a container's init container creates the checkout as root
+    // while the server runs as `uipi` (and the reverse can happen on a host).
+    // Without it git aborts with "detected dubious ownership" and every update
+    // silently reports no remote.
+    //
+    // Safe here precisely because the path is not attacker-chosen: it is the
+    // deployment's own agent dir, resolved server-side.
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: cwd,
+  };
+}
+
 async function git(cwd: string, args: string[], timeoutMs = 20_000): Promise<string> {
   try {
     const { stdout } = await run("git", args, {
       cwd,
       timeout: timeoutMs,
-      // A network fetch must never block on an interactive credential prompt:
-      // the server has no tty, and a hung `git fetch` would hold a request open
-      // until the transport timed out with no explanation.
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "true" },
+      env: gitEnv(cwd),
       maxBuffer: 4 * 1024 * 1024,
     });
     return stdout.trim();
@@ -239,5 +259,5 @@ export async function pullSource(
   return { source: after, moved: before.commit !== after.commit };
 }
 
-/** Exported for tests: the argv-level ref/remote guards. */
-export const __test = { safeRef, safeRemote };
+/** Exported for tests: the argv-level ref/remote guards, and the git env. */
+export const __test = { safeRef, safeRemote, gitEnv };

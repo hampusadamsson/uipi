@@ -202,6 +202,30 @@ describe("describeSource", () => {
   });
 });
 
+describe("a checkout owned by another user", () => {
+  it("is still readable, instead of failing with 'dubious ownership'", async () => {
+    // The real deployment has exactly this shape: an init container running as
+    // root creates the checkout, and the server process is a different user (or
+    // root in a container with a non-root-owned dir). git refuses such a repo
+    // with "detected dubious ownership" unless it is told otherwise, and the
+    // failure is silent from the UI's point of view — every check reported "no
+    // remote" and no update could ever be applied.
+    const { work } = makePair();
+    const before = await describeSource(await resolveUpdate(work), { fetch: true });
+    expect(before.commit).not.toBeNull();
+
+    // Emulate the ownership mismatch: a repository whose directory uid differs
+    // from ours is what triggers the check. We cannot chown in a test, so assert
+    // the config that prevents it is actually passed to git.
+    const { __test } = await import("../src/agent-update.js");
+    const env = __test.gitEnv(work);
+    expect(env.GIT_CONFIG_KEY_0).toBe("safe.directory");
+    expect(env.GIT_CONFIG_VALUE_0).toBe(work);
+    // and it must not disable the interactive-prompt guards
+    expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+  });
+});
+
 describe("pullSource", () => {
   it("fast-forwards the checkout and reports that HEAD moved", async () => {
     const { work, remote } = makePair();
