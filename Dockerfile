@@ -145,8 +145,13 @@ RUN mkdir -p /workspace && chown uipi:uipi /workspace
 # Baked-in agent config (explicit allowlist; Dockerfile/.github/.pi/pi-web-access/
 # dotfiles are deliberately not copied). chown'd so the non-root user can write
 # recent-dirs.json, schedules.json, sessions/ and caches in place.
+# models.json carries the bifrost provider. It is not a secret: its apiKey is the
+# literal `$BIFROST_API_KEY`, resolved from the environment at request time, so
+# the image needs that env var (see the bifrost secret in the deployment) rather
+# than a literal key on disk.
 COPY --chown=uipi:uipi --from=pi-config \
   /pi-config/settings.json \
+  /pi-config/models.json \
   /pi-config/APPEND_SYSTEM.md \
   /pi-config/roles.json \
   /pi-config/subagents.json \
