@@ -54,6 +54,7 @@ afterEach(() => {
 describe("message meta line", () => {
   it("renders duration, rate and context in the faint row", () => {
     const meta: TranscriptEntryMeta = {
+      timestampMs: new Date(2024, 10, 19, 14, 32).getTime(),
       durationMs: 12345,
       outputTokens: 152,
       contextTokens: 12_400,
@@ -64,14 +65,16 @@ describe("message meta line", () => {
     const row = metaRow();
     expect(row).not.toBeNull();
     expect(row!.textContent).toContain("message statistics");
-    expect(metaPartsText()).toEqual(["12.3s", "12.3 t/s", "12k ctx"]);
+    // the timestamp leads, then duration, rate and context
+    expect(metaPartsText().slice(1)).toEqual(["12.3s", "12.3 t/s", "12k ctx"]);
+    expect(metaPartsText()[0]).toMatch(/^(Nov 19 )?\d{2}:\d{2}$/);
     // one middot between the values
     const separators = [...row!.querySelectorAll('span[aria-hidden="true"]')].map(
       (s) => s.textContent,
     );
-    expect(separators).toEqual(["·", "·"]);
+    expect(separators).toEqual(["·", "·", "·"]);
     // supporting detail styling: small, faint, non-selectable
-    expect(row!.className).toContain("text-[11px]");
+    expect(row!.className).toContain("text-[10px]");
     expect(row!.className).toContain("text-muted-foreground/70");
     expect(row!.className).toContain("select-none");
     // no icons, borders or hover affordances
@@ -83,6 +86,13 @@ describe("message meta line", () => {
     render(entry({ meta: { tokensPerSecond: 7.25 } }));
 
     expect(metaPartsText()).toEqual(["7.3 t/s"]);
+  });
+
+  it("shows the timestamp alone when no usage or timing is known", () => {
+    render(entry({ meta: { timestampMs: new Date(2024, 10, 19, 14, 32).getTime() } }));
+
+    expect(metaPartsText()).toHaveLength(1);
+    expect(metaPartsText()[0]).toMatch(/^(Nov 19 )?\d{2}:\d{2}$/);
   });
 
   it("renders no row without meta", () => {

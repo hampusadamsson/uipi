@@ -436,7 +436,7 @@ export class UiState {
    * argument completions. Deliberately not mirrored into reactive state: names
    * can change under a hand-edited roles.json, so every picker open asks again.
    */
-  roleNames(sessionId: string): Promise<string[]> {
+  roleNames(sessionId?: string): Promise<string[]> {
     return this.client.roleNames(sessionId);
   }
 

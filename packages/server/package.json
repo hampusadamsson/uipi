@@ -12,8 +12,8 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.6.0",
     "@uipi/protocol": "workspace:*",
     "ws": "^8"
   },

@@ -84,7 +84,7 @@
 
   // ---------------------------------------------------------------- mobile
   //
-  // Below `lg` the desktop chrome cannot fit (a rail + tabs + chips + Stop on a
+  // Below `lg` the desktop chrome cannot fit (a rail + tabs + chips on a
   // 390px screen), so everything moves into two modal surfaces:
   //
   //   * the sessions drawer (left sheet) — the mobile form of the rail
@@ -209,9 +209,9 @@
 {/snippet}
 
 {#snippet sessionControls()}
-  <!-- Chips first, then Stop outside them: a control you must hunt for is a
-       bug. The chips themselves may scroll when a long role name meets a long
-       model id on a 320px screen — never the page, and never Stop. -->
+  <!-- Pickers only. Stop lives in the composer, right above the text the user is
+       typing into: one stop control, next to the thing it stops. A second one in
+       the header meant two buttons that did the same thing in two places. -->
   <div
     class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain lg:basis-auto lg:gap-1.5"
     aria-label="Session controls"
@@ -220,14 +220,6 @@
     <ThinkingPicker sessionId={attach!.sessionId} />
     <ModelPicker sessionId={attach!.sessionId} />
   </div>
-  {#if run !== "idle"}
-    <Button
-      variant="destructive"
-      size="sm"
-      class="shrink-0 text-xs max-lg:min-h-9"
-      onclick={() => ui.abort(attach!.sessionId)}>Stop</Button
-    >
-  {/if}
 {/snippet}
 
 {#if isDesktop.current}

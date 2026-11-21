@@ -10,11 +10,15 @@ Protocol / client / server / web split — `@uipi/protocol` (wire types only) �
 `@uipi/client` (transport, session store, reducer, transcript projection) →
 `@uipi/web` (Svelte adapter) + `@uipi/server` (Node, in-process pi SDK).
 
-- Multi-session sidebar, attach/re-attach, sessions live while browser is closed
+- Multi-session sidebar, one flat list newest-use-first (no project grouping),
+  attach/re-attach, sessions live while browser is closed
 - Per-session URLs (`/s/<hash8>`), durable deep links, refresh/back-button rehydration
 - Streaming chat, tool-call cards with streamed bash output and diffs
 - Model + thinking-level pickers, `/compact`, `@file` passthrough
 - 127.0.0.1 only, pi-native JSONL persistence, pi's own auth
+- pi 1.6.0 (`@earendil-works/pi-coding-agent` + `pi-ai`), so `models.json`
+  providers — including a hand-written one like Bifrost — are first-class rows in
+  the model picker with no uipi-side registration
 - 560+ tests across 56 files, CI (typecheck/lint/format/test/build)
 
 ## Decided — pages in the web UI (skills)
@@ -306,10 +310,16 @@ stacking a second modal.
 and rounds them; it never estimates, back-fills or extrapolates.
 
 - **A faint line, not a badge.** One row under each assistant message —
-  `12.3s · 12.3 t/s · 12k ctx` — at `text-[11px]`,
+  `14:32 · 12.3s · 12.3 t/s · 12k ctx` — at `text-[10px]`,
   `text-muted-foreground/70`, `select-none`, no icon, border or hover. Data you
   can ignore, not a control. It only appears in the assistant branch, so a user
   message never shows one.
+- **The message's own timestamp leads.** `AssistantMessage.timestamp` (unix ms,
+  request start) is carried as `meta.timestampMs` and rendered by `fmtTime`
+  (`packages/web/src/lib/format.ts`): `14:32` for today, `Nov 19 14:32`
+  otherwise. It is pi's clock reading, not a session-start offset, and it is
+  the one field that survives on its own — a legacy message with no usage still
+  gets a time.
 - **Duration is pi's, whole.** `durationMs` is `AssistantMessage.durationMs`:
   request start to response end, measured by pi with a monotonic clock, set on
   the stream's final message. It includes time-to-first-token and every pause
@@ -370,7 +380,7 @@ and rounds them; it never estimates, back-fills or extrapolates.
   today. They are the vendored shadcn-svelte kit new work starts from; deleting
   them only means re-running the generator.
 - **The styling assertions in `message-meta.svelte.test.ts` are regression
-  pins.** `text-[11px]`, `text-muted-foreground/70`, `select-none`, and no
+  pins.** `text-[10px]`, `text-muted-foreground/70`, `select-none`, and no
   border/hover/shadow _are_ the contract "faint line you can ignore"; loosening
   them lets a later refactor make the row loud.
 - **The state-identity assertions in `state-adapter.svelte.test.ts` are pins

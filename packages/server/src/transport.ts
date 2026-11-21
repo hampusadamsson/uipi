@@ -88,8 +88,8 @@ export function createServer(opts: ServerOptions, service: SessionService) {
       const reply: typeof sub.send = (m) =>
         sub.send((msg.id !== undefined ? { ...m, id: msg.id } : m) as S2C);
       try {
-        if ("sessionId" in msg && msg.type.startsWith("pi.")) {
-          void service.handleSessionCmd(msg, reply);
+        if ("sessionId" in msg && msg.sessionId !== undefined && msg.type.startsWith("pi.")) {
+          void service.handleSessionCmd(msg as C2S & { sessionId: string }, reply);
         } else {
           void service.handle(msg, reply, sub);
         }

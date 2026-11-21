@@ -34,6 +34,11 @@ export interface TranscriptEntry {
  * when they carry no usage.
  */
 export interface TranscriptEntryMeta {
+  /**
+   * Unix ms when pi started the request, straight from the message's own
+   * `timestamp`. The UI renders it as a wall-clock time.
+   */
+  timestampMs?: number;
   /** whole response duration; absent on legacy/deferred messages */
   durationMs?: number;
   outputTokens?: number;
@@ -238,8 +243,12 @@ function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
     raw: m,
     id: mm.id ?? fallbackId,
   };
-  const meta = metaOf(m);
-  if (meta) entry.meta = meta;
+  // Meta is assistant-only: usage and timing describe a model response, and
+  // the user's own bubble has no statistics row to put them in.
+  if (entry.role === "assistant") {
+    const meta = metaOf(m);
+    if (meta) entry.meta = meta;
+  }
   const error = errorOf(m);
   if (error) entry.error = error;
   return entry;
@@ -253,11 +262,13 @@ function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
 function metaOf(m: unknown): TranscriptEntryMeta | undefined {
   const mm = m as {
     durationMs?: unknown;
+    timestamp?: unknown;
     usage?: { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown };
   };
   if (!mm || typeof mm !== "object") return undefined;
   const num = (v: unknown): number | undefined =>
     typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const timestampMs = num(mm.timestamp);
   const durationMs = num(mm.durationMs);
   const output = num(mm.usage?.output);
   const input = num(mm.usage?.input);
@@ -272,6 +283,7 @@ function metaOf(m: unknown): TranscriptEntryMeta | undefined {
       ? Math.round((output / (durationMs / 1000)) * 10) / 10
       : undefined;
   const meta: TranscriptEntryMeta = {};
+  if (timestampMs !== undefined) meta.timestampMs = timestampMs;
   if (durationMs !== undefined) meta.durationMs = durationMs;
   if (output !== undefined) meta.outputTokens = output;
   if (contextTokens !== undefined) meta.contextTokens = contextTokens;

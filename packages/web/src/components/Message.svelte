@@ -1,14 +1,16 @@
 <script lang="ts">
   import type { TranscriptEntry } from "@uipi/client";
   import { ui } from "$lib/state.svelte";
-  import { fmtCtx } from "$lib/format";
+  import { fmtCtx, fmtTime } from "$lib/format";
   import ToolCall from "./ToolCall.svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 
-  let { entry }: { entry: TranscriptEntry } = $props();
+  // `expanded`: the caller wants the full body on screen no matter how long it
+  // is (the transcript's final reply), so no collapse toggle is offered.
+  let { entry, expanded = false }: { entry: TranscriptEntry; expanded?: boolean } = $props();
   let thinkOpen = $state(false);
   let bodyOpen = $state(false);
 
@@ -39,6 +41,12 @@
     const m = entry.meta;
     if (!m) return [];
     const parts: string[] = [];
+    // the wall-clock time the request started, so a transcript read later still
+    // says when each reply happened
+    if (m.timestampMs !== undefined) {
+      const at = fmtTime(m.timestampMs);
+      if (at) parts.push(at);
+    }
     if (m.durationMs !== undefined) {
       parts.push(
         m.durationMs < 1000
@@ -82,7 +90,7 @@
       {#if entry.thinking}
         <Collapsible.Root bind:open={thinkOpen} class="mb-1">
           <Collapsible.Trigger
-            class="w-full flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground min-h-7"
+            class="w-full flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground min-h-7"
           >
             <ChevronRightIcon
               class="size-3 shrink-0 transition-transform {thinkOpen ? 'rotate-90' : ''}"
@@ -90,7 +98,7 @@
             <span class="shrink-0">
               {entry.thinkingActive ? "thinking" : "thought for a bit"}
             </span>
-            <span class="truncate flex-1 text-left opacity-50 text-[11px]">
+            <span class="truncate flex-1 text-left opacity-50 text-[10px]">
               {entry.thinking.slice(0, 60)}
             </span>
           </Collapsible.Trigger>
@@ -119,7 +127,7 @@
           </div>
         {/if}
       {/snippet}
-      {#if isLong && !wasStreaming}
+      {#if isLong && !wasStreaming && !expanded}
         <Collapsible.Root bind:open={bodyOpen}>
           <Collapsible.Trigger>
             {#snippet child({ props })}
@@ -145,7 +153,7 @@
           class="opacity-0 transition-opacity group-hover:opacity-100 md:opacity-0 max-md:opacity-100"
         >
           <div
-            class="mt-1 flex gap-1.5 items-center text-[11px] text-muted-foreground/70 select-none"
+            class="mt-1 flex gap-1.5 items-center text-[10px] text-muted-foreground/70 select-none"
             data-testid="message-meta"
           >
             <span class="sr-only">message statistics:</span>

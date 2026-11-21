@@ -367,6 +367,116 @@ describe("schedules page inline editing", () => {
   });
 });
 
+describe("schedules page role dropdown", () => {
+  /** the role control's trigger (a Select trigger, so it is a button) */
+  function roleTrigger(): HTMLButtonElement {
+    const el = host.querySelector<HTMLButtonElement>("#schedule-role");
+    if (!el) throw new Error("no #schedule-role");
+    return el;
+  }
+
+  it("is a dropdown, not a free-text field", () => {
+    render();
+    buttonWithText("New").click();
+    flushSync();
+
+    const trigger = roleTrigger();
+    // a button trigger (bits-ui Select), not an <input> the user can type into
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.getAttribute("data-slot")).toBe("select-trigger");
+    expect(host.querySelector("input#schedule-role")).toBeNull();
+    // and it reads as "no role" until one is chosen
+    expect(trigger.textContent).toContain("(none)");
+  });
+
+  it("offers the role names from ui.roleNames, fetched without a session id", async () => {
+    // the same call the header's role picker makes; the page has no session, so
+    // it must ask sessionless
+    const asked: (string | undefined)[] = [];
+    vi.spyOn(ui, "roleNames").mockImplementation(async (id?: string) => {
+      asked.push(id);
+      return ["work", "architect"];
+    });
+    render();
+
+    buttonWithText("New").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    expect(asked).toEqual([undefined]);
+
+    roleTrigger().click();
+    flushSync();
+
+    const items = [...document.querySelectorAll('[data-slot="select-item"]')].map((el) =>
+      (el.textContent ?? "").trim(),
+    );
+    expect(items).toEqual(["(none)", "work", "architect"]);
+  });
+
+  it("fetches the names only once, and retries after a failure", async () => {
+    let calls = 0;
+    vi.spyOn(ui, "roleNames").mockImplementation(async () => {
+      calls++;
+      if (calls === 1) throw new Error("offline");
+      return ["work"];
+    });
+    render();
+
+    // failed load: the form still opens, the dropdown just has (none)
+    buttonWithText("New").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+    expect(calls).toBe(1);
+    expect(roleTrigger().textContent).toContain("(none)");
+
+    // closing and reopening retries, because nothing was cached on failure
+    buttonWithText("Cancel").click();
+    flushSync();
+    buttonWithText("New").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+    expect(calls).toBe(2);
+
+    // a successful load is cached: opening a third time asks nothing
+    buttonWithText("Cancel").click();
+    flushSync();
+    buttonWithText("New").click();
+    flushSync();
+    expect(calls).toBe(2);
+  });
+
+  it("saves the chosen role, and null for (none)", async () => {
+    vi.spyOn(ui, "roleNames").mockImplementation(async () => ["work"]);
+    const save = vi.spyOn(ui, "saveSchedule").mockImplementation(async (i: ScheduleInput) => ({
+      ...schedule(),
+      ...i,
+      id: i.id ?? "sch-new",
+    }));
+    render();
+
+    buttonWithText("New").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+
+    type(input("schedule-name"), "nightly");
+    type(input("schedule-cron"), "0 6 * * 1");
+    type(input("schedule-prompt"), "do things");
+    type(input("schedule-cwd"), "/proj");
+
+    // untouched: roleless is null, never the empty string
+    buttonWithText("Save").click();
+    flushSync();
+    await Promise.resolve();
+    flushSync();
+    expect(save.mock.calls[0][0]).toMatchObject({ role: null });
+  });
+});
+
 describe("schedules page form", () => {
   it("presets fill the cron input with honest labels", () => {
     render();

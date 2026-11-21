@@ -10,6 +10,15 @@
 
   const entries = $derived<TranscriptEntry[]>(ui.transcript(sessionId));
   const run = $derived(ui.stateOf(sessionId));
+  // The final reply is never collapsed: the reader is here for the end of the
+  // conversation, not for history they have already scrolled past.
+  const lastReplyIndex = $derived.by(() => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e.role === "assistant" || e.toolCalls.length > 0) return i;
+    }
+    return -1;
+  });
   // A failed request pi is retrying: the run stays "thinking" for the whole
   // backoff, so name the reason or it reads as a hang.
   const retry = $derived(ui.retry.get(sessionId));
@@ -50,17 +59,17 @@
     aria-live="polite"
   >
     {#each entries as e, i (e.id + ":" + i)}
-      <Message entry={e} />
+      <Message entry={e} expanded={i === lastReplyIndex} />
     {/each}
     {#if run !== "idle"}
       <div class="my-1.5 flex items-center gap-1.5">
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
         {#if retry}
-          <span class="text-[11px] text-destructive" data-testid="retry-notice">
+          <span class="text-[10px] text-destructive" data-testid="retry-notice">
             retrying {retry.attempt}/{retry.maxAttempts} — {retry.message}
           </span>
         {:else}
-          <span class="text-[11px] text-muted-foreground">
+          <span class="text-[10px] text-muted-foreground">
             assistant · {run === "thinking"
               ? "thinking"
               : run === "tooling"

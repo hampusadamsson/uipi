@@ -4,6 +4,8 @@
   import { Textarea } from "$lib/components/ui/textarea/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import XIcon from "@lucide/svelte/icons/x";
+  import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
+  import SquareIcon from "@lucide/svelte/icons/square";
 
   let { sessionId }: { sessionId: string } = $props();
 
@@ -40,6 +42,12 @@
 
   const slashItems = $derived(ui.slashItems(sessionId));
 
+  /**
+   * A queued message's chip text: the first few words only. A queued steer or
+   * follow-up is a reminder of what is waiting, not something to read — the
+   * composer is a one-line strip and a full prompt would push the field down.
+   * The chip truncates with CSS on top of this cap, so it never wraps either.
+   */
   function textOf(q: unknown): string {
     const s =
       typeof q === "string"
@@ -47,7 +55,14 @@
         : ((q as { text?: string; message?: string })?.text ??
           (q as { message?: string })?.message ??
           "");
-    return String(s).slice(0, 60);
+    const clean = String(s).replace(/\s+/g, " ").trim();
+    const LIMIT = 20;
+    if (clean.length <= LIMIT) return clean;
+    // cut on a word boundary when there is one, so the chip reads as a phrase
+    // instead of a chopped syllable
+    const cut = clean.slice(0, LIMIT);
+    const space = cut.lastIndexOf(" ");
+    return `${(space > 0 ? cut.slice(0, space) : cut).trimEnd()}…`;
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -126,7 +141,7 @@
           <span class="truncate">steer: {textOf(s)}</span>
           <button
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
-            aria-label="Cancel steering message"
+            aria-label="Cancel steer"
             onclick={() => ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "steer", index: i })}
           >
             <XIcon class="size-3" />
@@ -138,7 +153,7 @@
           <span class="truncate">followUp: {textOf(f)}</span>
           <button
             class="text-muted-foreground hover:text-foreground shrink-0 px-1"
-            aria-label="Cancel follow-up message"
+            aria-label="Cancel follow-up"
             onclick={() =>
               ui.cmd({ type: "pi.cancelQueued", sessionId, kind: "followUp", index: i })}
           >
@@ -167,7 +182,12 @@
       {/each}
     </div>
   {/if}
-  <div class="flex gap-2 items-end">
+  <div class="relative">
+    <!-- The submit control sits inside the field, bottom-right: one surface
+         instead of a field plus a button beside it, so the composer is shorter
+         and the eye never travels to a second box. `pr-12` reserves the strip
+         the button occupies — 48px covers the 44px touch target the coarse
+         pointer rule gives an icon button — so text never runs under it. -->
     <Textarea
       bind:this={ta}
       bind:value={text}
@@ -176,18 +196,38 @@
       rows={2}
       enterkeyhint="send"
       autocomplete="off"
-      placeholder={runState === "idle"
-        ? "Message ('/' for commands, @file to reference)"
-        : "…agent is working — send to steer"}
-      class="min-h-11 max-h-40 resize-none text-chat"
+      placeholder="…"
+      class="min-h-11 max-h-40 resize-none text-chat pr-12"
     ></Textarea>
-    <div class="flex flex-col gap-1 shrink-0">
+    <!-- Vertically centered against the field rather than pinned to a corner:
+         the coarse-pointer floor makes the button 44px tall, exactly the
+         field's own min-height, so any `bottom-*` offset would poke out of the
+         top. `inset-y-0` + `items-center` cannot. -->
+    <div class="pointer-events-none absolute inset-y-0 right-1 flex items-center">
       {#if runState === "idle"}
-        <Button class="min-h-11 px-5" onclick={send}>Send</Button>
-      {:else}
-        <Button variant="destructive" class="min-h-11 px-5" onclick={() => ui.abort(sessionId)}
-          >Stop</Button
+        <!-- A symbol, not the word: at this size the glyph is unambiguous and
+             the label would be wider than the field's own margin. -->
+        <Button
+          size="icon-sm"
+          class="pointer-events-auto"
+          aria-label="Send"
+          title="Send"
+          onclick={send}
+          disabled={text.trim() === ""}
         >
+          <ArrowUpIcon />
+        </Button>
+      {:else}
+        <Button
+          variant="destructive"
+          size="icon-sm"
+          class="pointer-events-auto"
+          aria-label="Stop"
+          title="Stop"
+          onclick={() => ui.abort(sessionId)}
+        >
+          <SquareIcon class="fill-current" />
+        </Button>
       {/if}
     </div>
   </div>

@@ -15,6 +15,7 @@
     CardTitle,
   } from "$lib/components/ui/card/index.js";
   import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import * as Select from "$lib/components/ui/select/index.js";
   import RefreshIcon from "@lucide/svelte/icons/refresh-cw";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import PlusIcon from "@lucide/svelte/icons/plus";
@@ -38,6 +39,16 @@
     { label: "Monthly on the 1st at 00:00", cron: "0 0 1 * *" },
   ];
 
+  /**
+   * Sentinel for the dropdown's "no role" row.
+   *
+   * bits-ui's Select cannot carry an empty-string value (an empty value reads as
+   * "nothing selected"), and a schedule's roleless state is a real choice, not
+   * an absence — so "no role" gets a value that no role name can be (`role`
+   * names are non-empty, and the server filters the extension's reserved words).
+   */
+  const NONE_ROLE = "\u0000none";
+
   /** schedules are listed by name so the order does not move under the user */
   const sorted = $derived([...ui.schedules].sort((a, b) => a.name.localeCompare(b.name)));
 
@@ -57,6 +68,15 @@
   let cron = $state("");
   let prompt = $state("");
   let role = $state("");
+  /**
+   * Role choices for the dropdown, fetched from the same `proto.roleNames` the
+   * header's role picker uses. Empty is a normal answer (no roles extension, a
+   * fresh install): the dropdown then offers `(none)` alone, which is still the
+   * right control for "no role".
+   */
+  let roleNames = $state<string[]>([]);
+  /** Loaded once per edit session, retried on the next open after a failure. */
+  let roleNamesLoaded = $state(false);
   let cwd = $state("");
   let enabled = $state(true);
   /** set on the first save attempt, so empty fields only complain once asked */
@@ -81,6 +101,28 @@
     return ui.attached.get(ui.activeId ?? "")?.cwd ?? ui.recentDirs[0] ?? "";
   }
 
+  /**
+   * Load the role choices for the dropdown, once per page.
+   *
+   * Same call the header's role picker makes (`proto.roleNames`), so the two
+   * surfaces list exactly the same names in the same order. Fetched without a
+   * session id on purpose: this page has no live agent of its own, and the
+   * server answers a sessionless request from `roles.json`.
+   *
+   * `roleNamesLoaded` is only set on success, so a failed request (offline,
+   * server restarting) is retried the next time a form opens instead of
+   * leaving the dropdown permanently empty.
+   */
+  async function loadRoleNames(): Promise<void> {
+    if (roleNamesLoaded) return;
+    try {
+      roleNames = await ui.roleNames();
+      roleNamesLoaded = true;
+    } catch {
+      roleNames = [];
+    }
+  }
+
   function openNew(): void {
     editing = "new";
     name = "";
@@ -91,6 +133,7 @@
     enabled = true;
     attempted = false;
     saveError = null;
+    void loadRoleNames();
   }
 
   /**
@@ -107,6 +150,7 @@
     enabled = s.enabled;
     attempted = false;
     saveError = null;
+    void loadRoleNames();
   }
 
   /** Clicking a row header opens that row's inline editor, clicking it again closes it. */
@@ -295,7 +339,7 @@
         <Button
           variant="outline"
           size="sm"
-          class="text-[11px] h-6 px-2"
+          class="text-[10px] h-6 px-2"
           data-preset={preset.cron}
           onclick={() => (cron = preset.cron)}>{preset.label}</Button
         >
@@ -322,13 +366,31 @@
     <Label for="schedule-role" class="text-xs font-normal text-muted-foreground"
       >Role (optional)</Label
     >
-    <Input
-      id="schedule-role"
-      class="text-xs font-mono"
-      value={role}
-      placeholder="(none)"
-      oninput={(e) => (role = e.currentTarget.value)}
-    />
+    <!-- A dropdown, not a free-text field: a role name is one of a known set,
+         and a typo used to produce a schedule that silently ran roleless. The
+         names come from the same place the header's role picker gets them
+         (`proto.roleNames`, answered from pi's roles extension / roles.json),
+         so the two can never disagree about what a role is called. -->
+    <Select.Root
+      type="single"
+      value={role === "" ? NONE_ROLE : role}
+      onValueChange={(v) => (role = v === NONE_ROLE ? "" : String(v))}
+    >
+      <Select.Trigger id="schedule-role" class="text-xs font-mono w-full" aria-label="Role">
+        <!-- The label is rendered here, not via `Select.Value`: the "no role"
+             row's value is the sentinel above, and the trigger would otherwise
+             print that sentinel instead of "(none)". -->
+        <span class="truncate {role === '' ? 'text-muted-foreground' : ''}"
+          >{role === "" ? "(none)" : role}</span
+        >
+      </Select.Trigger>
+      <Select.Content>
+        <Select.Item value={NONE_ROLE} label="(none)">(none)</Select.Item>
+        {#each roleNames as name (name)}
+          <Select.Item value={name} label={name}>{name}</Select.Item>
+        {/each}
+      </Select.Content>
+    </Select.Root>
   </div>
 
   <div class="flex flex-col gap-1">
@@ -457,7 +519,7 @@
                 {describeCron(s.cron)}
                 <span class="font-mono text-muted-foreground">({s.cron})</span>
               </CardDescription>
-              <div class="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+              <div class="flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
                 <span class="font-mono truncate min-w-0" title={s.cwd}>{s.cwd}</span>
                 <span class="shrink-0" title={fmtAbsolute(s.nextRunAt)}>
                   next {fmtRelative(s.nextRunAt)}
@@ -476,7 +538,7 @@
                 <Button
                   variant="outline"
                   size="sm"
-                  class="text-[11px] h-7"
+                  class="text-[10px] h-7"
                   data-action="toggle"
                   onclick={() => void toggleEnabled(s)}
                 >
@@ -486,7 +548,7 @@
                 <Button
                   variant="outline"
                   size="sm"
-                  class="text-[11px] h-7"
+                  class="text-[10px] h-7"
                   data-action="run"
                   disabled={runningId !== null}
                   onclick={() => void runNow(s)}
@@ -497,7 +559,7 @@
                 <Button
                   variant="outline"
                   size="sm"
-                  class="text-[11px] h-7"
+                  class="text-[10px] h-7"
                   data-action="history"
                   aria-expanded={expandedId === s.id}
                   onclick={() => toggleHistory(s.id)}
@@ -514,7 +576,7 @@
                 <Button
                   variant="destructive"
                   size="sm"
-                  class="text-[11px] h-7"
+                  class="text-[10px] h-7"
                   data-action="delete"
                   onclick={() => (deleting = s)}
                 >
@@ -530,7 +592,7 @@
                   <p class="text-xs text-muted-foreground">no runs yet</p>
                 {:else}
                   {#each runs as run, i (i)}
-                    <div class="flex items-start gap-2 text-[11px] min-w-0 flex-wrap">
+                    <div class="flex items-start gap-2 text-[10px] min-w-0 flex-wrap">
                       <span class="shrink-0 text-muted-foreground" title={fmtRelative(run.at)}>
                         {fmtAbsolute(run.at)}
                       </span>
@@ -548,7 +610,7 @@
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-[11px] h-6 px-2 shrink-0"
+                          class="text-[10px] h-6 px-2 shrink-0"
                           data-action="open-run"
                           onclick={() => void openRun(run)}>Open</Button
                         >

@@ -265,7 +265,7 @@ describe("app chrome on a phone", () => {
     ).not.toBeNull();
   });
 
-  it("keeps Stop outside the picker scroller so it cannot scroll out of reach", () => {
+  it("has exactly one Stop control, and it lives in the composer", () => {
     attachOne({ isStreaming: true });
     // the run state the header reads is the adapter's mirror, not `isStreaming`
     ui.runState.set("s1", "streaming");
@@ -276,12 +276,15 @@ describe("app chrome on a phone", () => {
     expect(strip.className).toContain("overflow-x-auto");
     expect(strip.className).toContain("min-w-0");
 
-    const stop = [...header().querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => (b.textContent ?? "").trim() === "Stop",
-    );
-    expect(stop, "no Stop button while streaming").toBeDefined();
-    expect(strip.contains(stop!)).toBe(false);
-    expect(header().contains(stop!)).toBe(true);
+    // One stop control for the whole app: beside the input, where the user is
+    // already looking while a run is in flight — not a second copy in the
+    // header doing the same thing.
+    const stops = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="Stop"]')];
+    expect(stops).toHaveLength(1);
+    expect(header().contains(stops[0])).toBe(false);
+    // the composer's textarea is a sibling inside the same wrapper
+    const wrapper = host.querySelector("textarea")!.parentElement!;
+    expect(wrapper.contains(stops[0])).toBe(true);
   });
 
   it("puts the session chips on their own line under the title bar", () => {

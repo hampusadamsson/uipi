@@ -418,15 +418,19 @@ export class UipiClient {
    * completions (reserved words filtered out server-side). Requested fresh on
    * every picker open — names change when roles.json is hand-edited, and only
    * the extension knows the current set.
+   *
+   * With no `sessionId` the server answers from `roles.json` itself: a page with
+   * no live session (the schedules form) still offers the real role names, in
+   * the same order and with the same reserved-word filtering.
    */
-  async roleNames(sessionId: string): Promise<string[]> {
+  async roleNames(sessionId?: string): Promise<string[]> {
     const m = await this.conn.request<{
       type: "proto.roleNames";
-      sessionId: string;
+      sessionId: string | null;
       names: string[];
     }>({
       type: "proto.roleNames",
-      sessionId,
+      ...(sessionId ? { sessionId } : {}),
     });
     return m.names ?? [];
   }

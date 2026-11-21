@@ -72,8 +72,10 @@ function key(name: string, init: KeyboardEventInit = {}): void {
 }
 
 function button(label: string): HTMLButtonElement {
+  // The submit/stop controls are icon-only now: the word lives in `aria-label`
+  // (and `title`), not in the button's text.
   const el = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-    (b) => b.textContent?.trim() === label,
+    (b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === label,
   );
   expect(el, `no button labelled ${label}`).toBeDefined();
   return el!;
@@ -147,6 +149,28 @@ describe("composer send", () => {
     expect(send).toHaveBeenCalledWith(SID, "hi");
     expect(textarea().value).toBe("");
   });
+
+  it("the submit control is an icon inside the field, disabled while empty", () => {
+    vi.spyOn(ui, "sendPrompt").mockImplementation(() => {});
+    render();
+
+    const send = button("Send");
+    // a symbol, not the word: no text label and a glyph child
+    expect(send.textContent!.trim()).toBe("");
+    expect(send.querySelector("svg")).not.toBeNull();
+    expect(send.getAttribute("title")).toBe("Send");
+
+    // it lives inside the field's wrapper, not beside it, and the field
+    // reserves room so text cannot run under it
+    const field = textarea();
+    expect(field.parentElement!.contains(send)).toBe(true);
+    expect(field.className).toContain("pr-12");
+
+    // empty box: nothing to send, so the control is inert
+    expect(button("Send").disabled).toBe(true);
+    type("hi");
+    expect(button("Send").disabled).toBe(false);
+  });
 });
 
 describe("composer slash commands", () => {
@@ -200,8 +224,12 @@ describe("composer stop control", () => {
     render();
 
     // no Send while a run is in flight — Stop replaces it
-    expect(host.textContent).not.toContain("Send");
-    button("Stop").click();
+    expect(host.querySelector('[aria-label="Send"]')).toBeNull();
+    const stop = button("Stop");
+    // the same icon treatment as Send, with a filled square glyph
+    expect(stop.textContent!.trim()).toBe("");
+    expect(stop.querySelector("svg")).not.toBeNull();
+    stop.click();
     flushSync();
 
     expect(abort).toHaveBeenCalledTimes(1);
@@ -211,8 +239,50 @@ describe("composer stop control", () => {
   it("an idle session shows Send instead of Stop", () => {
     render();
 
-    expect(host.textContent).toContain("Send");
-    expect(host.textContent).not.toContain("Stop");
+    expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+  });
+});
+
+describe("composer placeholder", () => {
+  it("is just an ellipsis, idle or busy", () => {
+    render();
+    expect(textarea().placeholder).toBe("…");
+    unmount(component!);
+    component = null;
+    host.remove();
+
+    ui.runState.set(SID, "thinking");
+    render();
+    expect(textarea().placeholder).toBe("…");
+  });
+});
+
+describe("composer queued-message chips", () => {
+  it("shortens a long steer to a short chip label and a short cancel label", () => {
+    ui.attached.set(SID, {
+      ...ui.attached.get(SID)!,
+      steering: ["please also refactor the whole parser while you are in there"],
+    });
+    render();
+
+    const chip = host.querySelector<HTMLElement>(".truncate")!;
+    expect(chip.textContent!.trim()).toBe("steer: please also…");
+    const cancel = host.querySelector<HTMLButtonElement>('[aria-label="Cancel steer"]');
+    expect(cancel).not.toBeNull();
+  });
+
+  it("collapses newlines so a multi-line prompt stays one short chip", () => {
+    ui.attached.set(SID, {
+      ...ui.attached.get(SID)!,
+      followUp: ["first line\n\nsecond line\tand more"],
+    });
+    render();
+
+    expect(host.querySelector<HTMLElement>(".truncate")!.textContent!.trim()).toBe(
+      "followUp: first line second…",
+    );
+    expect(host.querySelector('[aria-label="Cancel follow-up"]')).not.toBeNull();
   });
 });
 
@@ -230,7 +300,7 @@ describe("composer typography", () => {
     // happy-dom does no layout, so the value itself is asserted in app.css)
     // vitest runs with the package root as cwd
     const css = readFileSync(resolve(process.cwd(), "src/app.css"), "utf8");
-    expect(css).toMatch(/--text-chat:\s*0\.8125rem/);
+    expect(css).toMatch(/--text-chat:\s*0\.75rem/);
     // one unlayered rule owns the composer, so the touch 16px floor cannot
     // win outside iOS
     expect(css).toMatch(/textarea\.text-chat\s*\{\s*font-size:\s*var\(--text-chat\)/);

@@ -107,6 +107,7 @@ describe("deriveTranscript", () => {
     });
     const asst = entries.find((e) => e.role === "assistant");
     expect(asst!.meta).toEqual({
+      timestampMs: 1_700_000_000_000,
       durationMs: 2000,
       outputTokens: 50,
       contextTokens: 125,
@@ -132,6 +133,7 @@ describe("deriveTranscript", () => {
     });
     const asst = entries.find((e) => e.role === "assistant");
     expect(asst!.meta).toEqual({
+      timestampMs: 1_700_000_000_000,
       durationMs: 1500,
       outputTokens: 10,
       contextTokens: 45,
@@ -152,9 +154,27 @@ describe("deriveTranscript", () => {
       events: [],
     });
     const asst = entries.find((e) => e.role === "assistant");
-    expect(asst!.meta).toEqual({ outputTokens: 3, contextTokens: 7 });
+    expect(asst!.meta).toEqual({
+      timestampMs: 1_700_000_000_000,
+      outputTokens: 3,
+      contextTokens: 7,
+    });
     expect(asst!.meta!.durationMs).toBeUndefined();
     expect(asst!.meta!.tokensPerSecond).toBeUndefined();
+  });
+
+  it("carries the message timestamp even without usage or duration", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, { ...finalA, timestamp: 1_700_000_000_000 }],
+      events: [],
+    });
+    const asst = entries.find((e) => e.role === "assistant");
+    expect(asst!.meta).toEqual({ timestampMs: 1_700_000_000_000 });
+  });
+
+  it("gives a message with no timestamp no meta at all", () => {
+    const entries = deriveTranscript({ messages: [finalA], events: [] });
+    expect(entries[0].meta).toBeUndefined();
   });
 
   it("gives a user message no meta", () => {

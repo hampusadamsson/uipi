@@ -15,7 +15,7 @@
 
 <div class="mt-1">
   <div
-    class="flex gap-2 items-center min-h-7 rounded-md border border-border px-2 py-1 text-[11px]"
+    class="flex gap-2 items-center min-h-7 rounded-md border border-border px-2 py-1 text-[10px]"
   >
     <span class="shrink-0 font-mono {tc.isError ? 'text-destructive' : 'text-emerald-500'}"
       >{tc.name}</span

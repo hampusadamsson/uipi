@@ -143,8 +143,13 @@ export type C2S =
    * completions. Same discriminant as the reply, like `proto.recentDirs`: the
    * request carries no payload beyond the session, so the direction is
    * unambiguous.
+   *
+   * `sessionId` may be omitted when asking on behalf of a page with no live
+   * session (the schedules form): the server then answers from `roles.json`,
+   * the file the roles extension itself reads. Both paths filter the
+   * extension's reserved words, so the caller sees one shape either way.
    */
-  | { type: "proto.roleNames"; sessionId: string }
+  | { type: "proto.roleNames"; sessionId?: string }
   /**
    * Ask what skills pi discovers for one cwd. Same discriminant as the reply,
    * like `proto.recentDirs`: the request carries the query (`cwd`), the reply
@@ -452,9 +457,12 @@ export type S2C = S2CBase &
          * (`none`, `reload`, `keys`) filtered out. Empty when the roles
          * extension is not installed or completions fail — the picker degrades
          * to `(none)` + reload rather than erroring.
+         *
+         * `sessionId` is null for a sessionless request (see C2S): the names
+         * then come from `roles.json` itself.
          */
         type: "proto.roleNames";
-        sessionId: string;
+        sessionId: string | null;
         names: string[];
       }
     | { type: "proto.detached"; sessionId: string }

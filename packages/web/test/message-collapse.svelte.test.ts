@@ -43,10 +43,10 @@ type Rendered = {
   bodyVisible: () => boolean;
 };
 
-function render(e: TranscriptEntry): Rendered {
+function render(e: TranscriptEntry, expanded = false): Rendered {
   host = document.createElement("div");
   document.body.appendChild(host);
-  const props = $state({ entry: e });
+  const props = $state({ entry: e, expanded });
   component = mount(Message, { target: host, props });
   flushSync();
   return {
@@ -137,6 +137,19 @@ describe("long assistant message", () => {
     expect(r.body()!.textContent).toContain("lorem ipsum");
     expect(r.bodyVisible()).toBe(true);
     expect(host.textContent).not.toContain("show full message");
+  });
+});
+
+describe("final reply", () => {
+  it("renders fully expanded when the caller asks for it, with no toggle", () => {
+    const r = render(entry({ text: LONG }), true);
+
+    expect(r.toggle()).toBeNull();
+    expect(host.textContent).not.toContain("show full message");
+    expect(host.querySelector("[data-slot=collapsible]")).toBeNull();
+    expect(r.body()).not.toBeNull();
+    expect(r.body()!.textContent).toContain("lorem ipsum");
+    expect(r.bodyVisible()).toBe(true);
   });
 });
 

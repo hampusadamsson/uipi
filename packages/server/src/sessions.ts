@@ -253,8 +253,18 @@ export class SessionService {
       case "proto.setRole":
       case "proto.roleNames":
       case "proto.setSessionName": {
-        // session commands that happen to live in the proto.* namespace
-        await this.handleSessionCmd(msg, reply);
+        // session commands that happen to live in the proto.* namespace.
+        // `proto.roleNames` is the one that also answers without a session (the
+        // schedules form has no live agent to ask), so it is not gated on one.
+        if (msg.type === "proto.roleNames" && !msg.sessionId) {
+          reply({
+            type: "proto.roleNames",
+            sessionId: null,
+            names: await roleNamesFromConfig(this.agentDir()),
+          });
+          break;
+        }
+        await this.handleSessionCmd(msg as C2S & { sessionId: string }, reply);
         break;
       }
       case "proto.agentUpdateCheck": {
@@ -1399,6 +1409,34 @@ export async function discoverRoleNames(session: AgentSession): Promise<string[]
     return names;
   } catch {
     // display-only: a broken extension must never break the picker request
+    return [];
+  }
+}
+
+/**
+ * Role names straight from `roles.json`, for a request with no live session.
+ *
+ * `discoverRoleNames` needs an `AgentSession` because the roles extension owns
+ * the list. A page with no session (the schedules form) has none, and spinning
+ * one up just to read a JSON file would be absurd — `roles.json` is the same
+ * file the extension reads, so reading it here yields the same names.
+ *
+ * Same contract as the session path: reserved words are not roles, order is the
+ * file's own (`roles.json` insertion order, which is what the extension
+ * completes in), and any failure — missing file, bad JSON, no `roles` object —
+ * is an empty list rather than an error. Display-only either way.
+ */
+export async function roleNamesFromConfig(agentDir: string): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(readFileSync(join(agentDir, "roles.json"), "utf8")) as {
+      roles?: unknown;
+    };
+    const roles = parsed?.roles;
+    if (!roles || typeof roles !== "object" || Array.isArray(roles)) return [];
+    return Object.keys(roles as Record<string, unknown>).filter(
+      (name) => name.length > 0 && !RESERVED_ROLE_ARGS.has(name),
+    );
+  } catch {
     return [];
   }
 }

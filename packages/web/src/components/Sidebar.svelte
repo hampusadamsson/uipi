@@ -11,24 +11,8 @@
 
   let { onAfterSelect, onClose }: { onAfterSelect?: () => void; onClose?: () => void } = $props();
 
-  /** one project's rows: the server's order (newest first) is preserved */
-  type Group = { cwd: string; label: string; sessions: SessionSummary[]; mtime: number };
-
-  /**
-   * Open/collapsed choice per project cwd, page session only (no storage): a
-   * missing key means "not chosen yet", so the default below applies and the
-   * group still follows the active session.
-   */
-  const openChoice = $state<Record<string, boolean>>({});
-
   /** free-text session filter; empty means "no filtering at all" */
   let query = $state("");
-
-  /** the project's own name: the last path segment ("/" for the root itself) */
-  function basename(path: string): string {
-    const parts = path.split("/").filter((p) => p !== "");
-    return parts.pop() ?? path;
-  }
 
   /**
    * The query split into terms: an all-whitespace query is empty, so it filters
@@ -43,7 +27,7 @@
       .filter((t) => t !== ""),
   );
 
-  /** whether a query is active at all (drives auto-open and the empty text) */
+  /** whether a query is active at all (drives the empty-result text) */
   const filtering = $derived(terms.length > 0);
 
   /** case-insensitive substring match on the fields a user might search by */
@@ -54,67 +38,19 @@
     return terms.every((t) => haystack.includes(t));
   }
 
-  /** the rows to group: the whole list, or only the matching sessions */
-  const visible = $derived.by((): SessionSummary[] =>
-    filtering ? ui.sessions.filter(matches) : ui.sessions,
-  );
-
   /**
-   * Rows grouped by project, newest project first. The newest session mtime in
-   * a group decides the group's position; rows inside a group keep the order
-   * the server sent them in. Filtering happens before grouping, so a group
-   * without matches disappears and its count is the number of matches.
+   * The rows to show: the whole list, or only the matching sessions, newest
+   * first. Sessions are one flat list ordered by when they were last used — no
+   * project headings, no collapsible groups. A sidebar is a "what was I doing"
+   * list, and where a session ran is already on its own row (`s.cwd`), so
+   * grouping by folder only adds a second way to scan the same list.
    */
-  const groups = $derived.by((): Group[] => {
-    const out: Group[] = [];
-    for (const s of visible) {
-      const g = out.find((it) => it.cwd === s.cwd);
-      if (!g) {
-        out.push({ cwd: s.cwd, label: basename(s.cwd), sessions: [s], mtime: s.mtime });
-        continue;
-      }
-      g.sessions.push(s);
-      g.mtime = Math.max(g.mtime, s.mtime);
-    }
-    // stable sort: equal mtimes keep the server's order of first appearance
-    return out.sort((a, b) => b.mtime - a.mtime);
+  const visible = $derived.by((): SessionSummary[] => {
+    const rows = filtering ? ui.sessions.filter(matches) : ui.sessions;
+    // stable sort: equal mtimes keep the server's order, and a sorted copy
+    // leaves `ui.sessions` untouched
+    return [...rows].sort((a, b) => b.mtime - a.mtime);
   });
-
-  /**
-   * The active session, lifted out of the project groups so it stays visible
-   * even when its group is collapsed. Only pinned when it survives the filter:
-   * a row the query hides must not come back as a "pinned" special case.
-   */
-  const pinned = $derived(visible.find((s) => s.sessionId === ui.activeId) ?? null);
-
-  /**
-   * A group's rows without the pinned session. The header keeps its place even
-   * when this list is empty, so a project whose only session is the active one
-   * does not vanish from the sidebar (it renders with count 0).
-   */
-  function groupRows(g: Group): SessionSummary[] {
-    return pinned ? g.sessions.filter((s) => s.sessionId !== pinned.sessionId) : g.sessions;
-  }
-
-  /**
-   * Default: the first (most recent) group and the group holding the active
-   * session start open, the rest collapsed — a click overrides that for the
-   * page session. `g.sessions` is the unfiltered membership here: the active
-   * row is pinned above, but its project still opens on its behalf.
-   */
-  function isOpen(g: Group, index: number): boolean {
-    // while searching, every surviving group is open: results hidden behind a
-    // collapsed header would look like a broken search
-    if (filtering) return true;
-    const chosen = openChoice[g.cwd];
-    if (chosen !== undefined) return chosen;
-    if (index === 0) return true;
-    return g.sessions.some((s) => s.sessionId === ui.activeId);
-  }
-
-  function toggle(g: Group, index: number): void {
-    openChoice[g.cwd] = !isOpen(g, index);
-  }
 
   /**
    * A row click switches the chat, so it must also leave a page route.
@@ -257,37 +193,8 @@
     />
   </div>
   <div class="flex-1 overflow-y-auto overscroll-contain p-1">
-    {#if pinned}
-      <div class="mb-1">
-        <div class="text-[10px] text-muted-foreground px-2" data-active-caption>active</div>
-        {#key pinned.sessionId}
-          {@render sessionRow(pinned)}
-        {/key}
-      </div>
-    {/if}
-    {#each groups as g, i (g.cwd)}
-      {@const open = isOpen(g, i)}
-      {@const groupSessions = groupRows(g)}
-      <div class="mb-1">
-        <button
-          class="w-full text-left rounded-md px-2 py-1.5 flex items-center gap-1 hover:bg-accent hover:text-accent-foreground"
-          title={g.cwd}
-          aria-expanded={open}
-          data-group={g.cwd}
-          onclick={() => toggle(g, i)}
-        >
-          <span class="text-[10px] w-2.5 shrink-0 opacity-60">{open ? "▾" : "▸"}</span>
-          <span class="text-xs font-medium truncate">{g.label}</span>
-          <span class="ml-auto text-[10px] text-muted-foreground shrink-0" title="sessions"
-            >{groupSessions.length}</span
-          >
-        </button>
-        {#if open}
-          {#each groupSessions as s (s.sessionFile)}
-            {@render sessionRow(s)}
-          {/each}
-        {/if}
-      </div>
+    {#each visible as s (s.sessionFile)}
+      {@render sessionRow(s)}
     {:else}
       <div class="text-xs text-muted-foreground px-3 py-2">
         {filtering ? "no sessions match" : "no sessions yet"}
