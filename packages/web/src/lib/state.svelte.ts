@@ -305,7 +305,10 @@ export class UiState {
    * (role switches, compaction) are single generated lines, not prose.
    */
   entryHtml(entry: TranscriptEntry): string | null {
-    if (entry.kind !== "message" || entry.role !== "assistant" || entry.text.length === 0) {
+    // Whitespace-only text is not prose: pi emits a `"\n\n"` text part beside a
+    // tool call, and rendering it put an empty paragraph (and the leading glyph)
+    // above every tool card.
+    if (entry.kind !== "message" || entry.role !== "assistant" || entry.text.trim().length === 0) {
       return null;
     }
     return renderMarkdown(entry.text);

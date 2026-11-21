@@ -22,7 +22,7 @@
   // Length test for collapsing a long reply, measured on the text the reader
   // sees: the markdown HTML has no tags or newlines worth counting, so fall
   // back to it stripped of markup only when there is no source text.
-  const plainText = $derived(entry.text || (html ?? "").replace(/<[^>]*>/g, ""));
+  const plainText = $derived(entry.text.trim() || (html ?? "").replace(/<[^>]*>/g, ""));
   const isLong = $derived(plainText.length > 800 || plainText.split("\n").length > 12);
 
   // Once this entry has been streaming, keep it expanded for good: a reply that
@@ -111,7 +111,7 @@
         <div class="text-xs text-muted-foreground animate-pulse my-1">thinking…</div>
       {/if}
       {#snippet body()}
-        {#if html !== null || entry.text}
+        {#if html !== null || entry.text.trim()}
           <div class="flex items-start">
             <!-- A one-glyph anchor so a run of assistant text has a left edge. -->
             <span aria-hidden="true" class="text-primary/40 select-none mr-1.5 inline-block">▍</span

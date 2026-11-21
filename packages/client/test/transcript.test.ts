@@ -277,6 +277,57 @@ describe("tool result projection", () => {
     });
     expect(entries.some((e) => e.role === "toolResult")).toBe(false);
   });
+
+  // Replay has no `tool_execution_*` events at all: a session reopened from
+  // history, a reload or a deep link gets only the snapshot, where the call
+  // lives in the assistant message's own content and the output lives in the
+  // following `toolResult` message. Projecting neither left a bare usage line
+  // with no tool card and no text — the run looked like it had done nothing.
+  it("rebuilds tool cards from the snapshot alone", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, calledAssistant, toolResult],
+      events: [],
+    });
+    const withTool = entries.filter((e) => e.toolCalls.length > 0);
+    expect(withTool).toHaveLength(1);
+    expect(withTool[0].toolCalls[0]).toMatchObject({
+      id: "tc1",
+      name: "ls",
+      done: true,
+      isError: false,
+    });
+    expect(withTool[0].toolCalls[0].output).toContain("file-a");
+  });
+
+  it("marks a replayed tool card as failed when its result says so", () => {
+    const entries = deriveTranscript({
+      messages: [userMsg, calledAssistant, { ...toolResult, isError: true }],
+      events: [],
+    });
+    expect(entries.find((e) => e.toolCalls.length > 0)!.toolCalls[0].isError).toBe(true);
+  });
+
+  it("keeps a replayed call whose result never landed", () => {
+    const entries = deriveTranscript({ messages: [userMsg, calledAssistant], events: [] });
+    const withTool = entries.filter((e) => e.toolCalls.length > 0);
+    expect(withTool).toHaveLength(1);
+    expect(withTool[0].toolCalls[0].output).toBe("");
+  });
+
+  it("replays the reasoning a tool-calling step carried", () => {
+    const withThinking = {
+      ...calledAssistant,
+      content: [
+        { type: "thinking", thinking: "let me look" },
+        { type: "text", text: "\n\n" },
+        ...calledAssistant.content,
+      ],
+    };
+    const entries = deriveTranscript({ messages: [userMsg, withThinking], events: [] });
+    const asst = entries.find((e) => e.role === "assistant")!;
+    expect(asst.thinking).toBe("let me look");
+    expect(asst.thinkingActive).toBe(false);
+  });
 });
 
 describe("custom entry rendering", () => {

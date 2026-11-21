@@ -107,11 +107,15 @@ export function deriveTranscript(attach: {
   sentMessages?: string[];
 }): TranscriptEntry[] {
   const out: TranscriptEntry[] = [];
+  // Persisted tool output lives in its own `toolResult` messages, which come
+  // after the assistant message that made the call; collect them first so the
+  // card can carry its output the moment the call is projected.
+  const results = toolResultsById(attach.messages ?? []);
   // 1. snapshot messages (history at attach time); a snapshot is normally
   // model-context messages, but custom entries are tolerated in place so the
   // startup-suppression rule stays positionally correct
   for (const m of attach.messages ?? []) {
-    const entry = fromSnapshot(m, out.length);
+    const entry = fromSnapshot(m, out.length, results);
     if (entry) out.push(entry);
   }
   // 2. optimistic user messages only while the server hasn't echoed any user message yet
@@ -146,9 +150,39 @@ function isCustomEntry(v: unknown): v is CustomEntryView {
 
 /** Render a snapshot item: a custom entry goes through the registry, anything
  *  else is treated as a message. Returns null when the entry renders nothing. */
-function fromSnapshot(m: unknown, index: number): TranscriptEntry | null {
-  if (!isCustomEntry(m)) return fromMessage(m, `snap${index}`);
+function fromSnapshot(
+  m: unknown,
+  index: number,
+  results?: Map<string, ToolResultView>,
+): TranscriptEntry | null {
+  if (!isCustomEntry(m)) return fromMessage(m, `snap${index}`, results);
   return renderCustomEntry(m, index);
+}
+
+/** A persisted tool result: the text a call produced, and whether it failed. */
+interface ToolResultView {
+  output: string;
+  isError: boolean;
+}
+
+/**
+ * Output of every `toolResult` message, keyed by the call it belongs to.
+ *
+ * pi persists a tool's output as a separate `role: "toolResult"` message, so a
+ * replayed session (a reload, a deep link, a browser reopened later) has no
+ * live `tool_execution_*` events at all — the results here are the only copy of
+ * that output in the snapshot.
+ */
+function toolResultsById(messages: unknown[]): Map<string, ToolResultView> {
+  const byId = new Map<string, ToolResultView>();
+  for (const m of messages) {
+    if (roleOf(m) !== "toolResult") continue;
+    const mm = m as { toolCallId?: unknown; isError?: unknown };
+    const id = typeof mm.toolCallId === "string" ? mm.toolCallId : "";
+    if (!id) continue;
+    byId.set(id, { output: textOf(m), isError: Boolean(mm.isError) });
+  }
+  return byId;
 }
 
 /** Run one custom entry through the registry. Unknown types render nothing. */
@@ -227,7 +261,11 @@ function textOf(m: unknown): string {
   return "";
 }
 
-function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
+function fromMessage(
+  m: unknown,
+  fallbackId: string,
+  results?: Map<string, ToolResultView>,
+): TranscriptEntry | null {
   // pi persists every tool result as its own `role: "toolResult"` message, and
   // the assistant's tool card already renders that output; projecting the
   // message as well would show the same text twice.
@@ -246,12 +284,70 @@ function fromMessage(m: unknown, fallbackId: string): TranscriptEntry | null {
   // Meta is assistant-only: usage and timing describe a model response, and
   // the user's own bubble has no statistics row to put them in.
   if (entry.role === "assistant") {
+    // A tool-calling step usually has no prose at all: pi writes its content as
+    // `thinking` + `toolCall` parts, sometimes with a whitespace-only text part.
+    // Without projecting those parts here the step renders as a remembered
+    // usage line with nothing under it — the whole run looks like it did
+    // nothing when the session is replayed from history.
+    entry.toolCalls = toolCallsOf(m, results);
+    entry.thinking = thinkingOf(m);
     const meta = metaOf(m);
     if (meta) entry.meta = meta;
   }
   const error = errorOf(m);
   if (error) entry.error = error;
   return entry;
+}
+
+/**
+ * The reasoning a persisted assistant message carries. Replayed history shows
+ * it behind the same collapsed row a live run streams into; without this the
+ * row is empty and a tool-heavy transcript loses the only prose it had.
+ */
+function thinkingOf(m: unknown): string {
+  const content = (m as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const p = part as { type?: unknown; thinking?: unknown };
+      if (p.type !== "thinking" && p.type !== "reasoning") return "";
+      return typeof p.thinking === "string" ? p.thinking : "";
+    })
+    .join("");
+}
+
+/**
+ * The tool calls a persisted assistant message made, with their outputs when the
+ * session's `toolResult` messages are available. In a snapshot every call is
+ * already finished — pi only records the message once the step ended — so a
+ * call whose result is missing was interrupted, not still running.
+ */
+function toolCallsOf(m: unknown, results?: Map<string, ToolResultView>): ToolCallView[] {
+  const content = (m as { content?: unknown }).content;
+  if (!Array.isArray(content)) return [];
+  const calls: ToolCallView[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+    if (p.type !== "toolCall" && p.type !== "tool_use") continue;
+    // no id means a half-streamed call: the live `tool_execution_*` events own
+    // that card, and a second one keyed on "" would never be merged with it
+    const id = typeof p.id === "string" ? p.id : "";
+    if (!id) continue;
+    const result = results?.get(id);
+    calls.push({
+      id,
+      name: typeof p.name === "string" ? p.name : "tool",
+      argsPreview: JSON.stringify(p.arguments ?? {}).slice(0, 200),
+      output: result?.output ?? "",
+      // A snapshot has already attached whatever results exist; a live step is
+      // still waiting for its `tool_execution_end` and must keep the spinner.
+      done: results !== undefined,
+      isError: result?.isError ?? false,
+    });
+  }
+  return calls;
 }
 
 /**
@@ -308,7 +404,7 @@ function dropSupersededFailure(out: TranscriptEntry[]): void {
     last.kind === "message" &&
     last.role === "assistant" &&
     last.error !== undefined &&
-    last.text === "" &&
+    last.text.trim() === "" &&
     last.toolCalls.length === 0
   ) {
     out.pop();
@@ -464,8 +560,15 @@ function coalesce(entries: TranscriptEntry[]): TranscriptEntry[] {
   // Drop empty filler entries, except those that carry something a reader must
   // see: tool calls, or a failure. An errored turn has no text at all, so
   // filtering it out is what made a failed run vanish from the transcript.
+  //
+  // "Empty" is measured on the trimmed text: pi emits whitespace-only text
+  // parts (`"\n\n"`) alongside tool calls, and counting those as content left
+  // a row whose only visible element was the usage line.
   return entries.filter(
     (e) =>
-      e.kind !== "message" || e.text.length > 0 || e.toolCalls.length > 0 || e.error !== undefined,
+      e.kind !== "message" ||
+      e.text.trim().length > 0 ||
+      e.toolCalls.length > 0 ||
+      e.error !== undefined,
   );
 }
