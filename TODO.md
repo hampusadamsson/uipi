@@ -19,7 +19,7 @@ Protocol / client / server / web split — `@uipi/protocol` (wire types only) �
 - pi 1.6.0 (`@earendil-works/pi-coding-agent` + `pi-ai`), so `models.json`
   providers — including a hand-written one like Bifrost — are first-class rows in
   the model picker with no uipi-side registration
-- 650+ tests across 57 files, CI (typecheck/lint/format/test/build)
+- 650+ tests across 67 files, CI (typecheck/lint/format/test/build)
 
 ## Decided — pages in the web UI (skills)
 
